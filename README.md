@@ -66,7 +66,13 @@ Optional boot overrides:
 
 The `rebuild-projections` binary runs SQLx migrations and replays all events into the read projections.
 
-See `PLAN.md` for the detailed parallel implementation plan covering the remaining goals + the long-term vision of agentic armies on high-VRAM GPU pods running batch Qwen 2.5 32B inference.
+See:
+- `HANDOFF.md` — full current state, RunPod one-pod testing guide, and resume instructions.
+- `PLAN.md` — detailed parallel implementation plan.
+- `docs/runpod-onepod-guide.md` — step-by-step for setting up one RunPod to test the worker/harness script (local_llm mode on GPU).
+- `docs/` for more (GPU pod deployment notes).
+
+Long-term vision: control plane for agentic armies on RunPod / Vast.ai pods with high-VRAM cards for batch Qwen 2.5 32B.
 
 ### Multi-worker harness
 
