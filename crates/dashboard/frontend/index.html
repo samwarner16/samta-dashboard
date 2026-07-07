@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Dashboard</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --panel: #111827;
+            --panel-soft: #1f2937;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --good: #34d399;
+            --warn: #f59e0b;
+            --bad: #f87171;
+            --accent: #60a5fa;
+            --accent-alt: #3b82f6;
+            --border: #374151;
+            --running: #60a5fa;
+            --completed: #34d399;
+            --blocked: #f59e0b;
+            --paused: #a78bfa;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: "Inter", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(140deg, #020617, #111827 45%, #0f172a 100%);
+            color: var(--text);
+            padding: 20px;
+        }
+
+        h1 {
+            margin: 0 0 16px;
+            letter-spacing: 0.02em;
+        }
+
+        .grid {
+            display: grid;
+            gap: 14px;
+            grid-template-columns: repeat(12, minmax(0, 1fr));
+        }
+
+        .card {
+            background: rgba(17, 24, 39, 0.8);
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 16px;
+            backdrop-filter: blur(2px);
+            box-shadow: 0 8px 26px rgba(0, 0, 0, 0.25);
+        }
+
+        .card h2 {
+            margin: 0 0 10px;
+            font-size: 1rem;
+            color: #cbd5e1;
+            letter-spacing: 0.03em;
+        }
+
+        .metrics {
+            grid-column: span 12;
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .metric {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 12px;
+        }
+
+        .metric .label {
+            color: var(--muted);
+            font-size: 0.8rem;
+        }
+
+        .metric .value {
+            margin-top: 8px;
+            font-size: 1.45rem;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .panel-title {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .panel-title small {
+            color: var(--muted);
+        }
+
+        .cols-2 {
+            grid-column: span 6;
+            display: flex;
+            flex-direction: column;
+            min-height: 340px;
+        }
+
+        .muted {
+            color: var(--muted);
+            font-size: 0.9rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        th,
+        td {
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+            padding: 8px 6px;
+            vertical-align: top;
+        }
+
+        th {
+            color: #cbd5e1;
+            font-weight: 600;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .run-row {
+            cursor: pointer;
+        }
+
+        .status {
+            font-weight: 700;
+        }
+
+        .running {
+            color: var(--running);
+        }
+
+        .completed {
+            color: var(--completed);
+        }
+
+        .blocked {
+            color: var(--blocked);
+        }
+
+        .paused {
+            color: var(--paused);
+        }
+
+        .cancelled {
+            color: var(--warn);
+        }
+
+        .small {
+            color: var(--muted);
+            font-size: 0.82rem;
+        }
+
+        pre {
+            margin: 0;
+            max-height: 260px;
+            overflow: auto;
+            background: #020617;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 8px;
+            font-size: 0.78rem;
+            color: #e2e8f0;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .form-grid {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .col-gap {
+            width: 100%;
+            height: 8px;
+        }
+
+        input,
+        select,
+        textarea {
+            background: #020617;
+            color: #e2e8f0;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px;
+            min-width: 0;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: #64748b;
+        }
+
+        button {
+            background: #1d4ed8;
+            color: #f8fafc;
+            border: none;
+            border-radius: 8px;
+            padding: 8px 10px;
+            cursor: pointer;
+            font-size: 0.84rem;
+        }
+
+        button:hover {
+            opacity: 0.92;
+        }
+
+        .section-title {
+            color: #f8fafc;
+            margin: 8px 0 6px;
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 1100px) {
+            .cols-2 {
+                grid-column: span 12;
+            }
+
+            .metrics {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Autonomous Agent Dashboard</h1>
+
+    <div class="grid">
+        <div class="card metrics">
+            <div class="metric">
+                <div class="label">Total Events</div>
+                <div class="value" id="metric-events">-</div>
+            </div>
+            <div class="metric">
+                <div class="label">Event Streams</div>
+                <div class="value" id="metric-streams">-</div>
+            </div>
+            <div class="metric">
+                <div class="label">Runs</div>
+                <div class="value" id="metric-runs">-</div>
+            </div>
+            <div class="metric">
+                <div class="label">Running / Completed / Blocked</div>
+                <div class="value" id="metric-status">-</div>
+            </div>
+        </div>
+
+        <div class="card cols-2">
+            <div class="panel-title">
+                <h2>Workspaces</h2>
+                <small class="small" id="workspaces-count">- workspaces</small>
+            </div>
+            <div id="workspaces-body" class="muted">Loading workspaces…</div>
+            <div class="col-gap"></div>
+            <div class="section-title">Create workspace</div>
+            <div class="form-grid">
+                <input id="workspace-name" type="text" placeholder="Workspace name" />
+                <button id="create-workspace-btn" type="button">Create</button>
+            </div>
+        </div>
+
+        <div class="card cols-2">
+            <div class="panel-title">
+                <h2>Runs</h2>
+                <small class="small" id="runs-count">- runs</small>
+            </div>
+            <div class="toolbar">
+                <button id="rebuild-btn" type="button">Rebuild projections</button>
+                <button id="refresh-btn" type="button">Refresh now</button>
+            </div>
+            <div class="section-title">Start run</div>
+            <div class="form-grid">
+                <select id="run-workspace-id" style="min-width: 250px"></select>
+                <input id="run-objective" type="text" placeholder="Objective" />
+                <input id="run-target-items" type="number" min="1" max="20" value="4" style="max-width: 120px" />
+                <input id="run-agent-count" type="number" min="1" max="16" value="1" style="max-width: 120px" />
+                <button id="create-run-btn" type="button">Create run</button>
+            </div>
+            <div style="overflow: auto; margin-top: 8px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Run ID</th>
+                            <th>Workspace</th>
+                            <th>Status</th>
+                            <th>Cost</th>
+                            <th>Effort</th>
+                            <th>Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody id="run-list">
+                        <tr><td colspan="6" class="muted">Loading runs…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card cols-2">
+            <div class="panel-title">
+                <h2>Run Detail</h2>
+                <small class="small" id="run-detail-id">select a run</small>
+            </div>
+            <div class="toolbar" id="run-controls" style="margin-bottom: 10px;">
+                <button id="pause-run-btn" type="button">Pause</button>
+                <button id="resume-run-btn" type="button">Resume</button>
+                <button id="cancel-run-btn" type="button">Cancel</button>
+                <button id="retry-run-btn" type="button">Retry failed</button>
+            </div>
+            <div id="run-summary" class="small muted">No run selected.</div>
+            <div class="section-title">Work items</div>
+            <div style="overflow: auto; max-height: 220px; margin-bottom: 8px;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Item ID</th>
+                            <th>Status</th>
+                            <th>Agent</th>
+                        </tr>
+                    </thead>
+                    <tbody id="run-work-items">
+                        <tr><td colspan="3" class="muted">No run selected.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="section-title">Cost / effort history</div>
+            <pre id="run-history">No run selected.</pre>
+            <div class="section-title">Timeline</div>
+            <pre id="run-timeline">No run selected.</pre>
+        </div>
+
+        <div class="card cols-2">
+            <div class="panel-title">
+                <h2>Live Event Stream</h2>
+                <small class="small" id="ws-status">connecting…</small>
+            </div>
+            <div class="toolbar">
+                <button id="reconnect-ws" type="button">Reconnect WS</button>
+                <span class="small">endpoint: /ws</span>
+            </div>
+            <pre id="events-log">Waiting for messages…</pre>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = new URLSearchParams(window.location.search).get('api') || 'http://127.0.0.1:8080';
+        const POLL_MS = 2000;
+
+        const metricEvents = document.getElementById('metric-events');
+        const metricStreams = document.getElementById('metric-streams');
+        const metricRuns = document.getElementById('metric-runs');
+        const metricStatus = document.getElementById('metric-status');
+
+        const workspacesBody = document.getElementById('workspaces-body');
+        const workspacesCount = document.getElementById('workspaces-count');
+        const runWorkspaceSelect = document.getElementById('run-workspace-id');
+        const workspaceNameInput = document.getElementById('workspace-name');
+        const createWorkspaceBtn = document.getElementById('create-workspace-btn');
+
+        const runObjectiveInput = document.getElementById('run-objective');
+        const createRunBtn = document.getElementById('create-run-btn');
+        const runTargetItemsInput = document.getElementById('run-target-items');
+        const runAgentCountInput = document.getElementById('run-agent-count');
+        const runList = document.getElementById('run-list');
+        const runsCount = document.getElementById('runs-count');
+        const runDetailId = document.getElementById('run-detail-id');
+        const runSummary = document.getElementById('run-summary');
+        const runWorkItems = document.getElementById('run-work-items');
+        const runHistory = document.getElementById('run-history');
+        const runTimeline = document.getElementById('run-timeline');
+
+        const eventsLog = document.getElementById('events-log');
+        const wsStatus = document.getElementById('ws-status');
+
+        const refreshBtn = document.getElementById('refresh-btn');
+        const rebuildBtn = document.getElementById('rebuild-btn');
+        const reconnectBtn = document.getElementById('reconnect-ws');
+
+        const pauseBtn = document.getElementById('pause-run-btn');
+        const resumeBtn = document.getElementById('resume-run-btn');
+        const cancelBtn = document.getElementById('cancel-run-btn');
+        const retryBtn = document.getElementById('retry-run-btn');
+
+        let workspaces = [];
+        let selectedRunId = localStorage.getItem('selectedRunId');
+        let ws;
+
+        const formatDate = (value) => {
+            if (!value) return '-';
+            const iso = new Date(value);
+            if (Number.isNaN(iso.getTime())) return value;
+            return iso.toLocaleString();
+        };
+
+        const statusClassName = (status) => {
+            const cls = status || ''.toLowerCase();
+            return `status ${cls}`;
+        };
+
+        const fetchJson = async (url) => {
+            const res = await fetch(url);
+            if (!res.ok) {
+                throw new Error(`${url} -> ${res.status}`);
+            }
+            return res.json();
+        };
+
+        const postControl = async (url) => {
+            const res = await fetch(url, { method: 'POST' });
+            if (!res.ok) {
+                throw new Error(`${url} -> ${res.status}`);
+            }
+            return res.json();
+        };
+
+        const appendEventMessage = (payload) => {
+            const entry = `${new Date().toLocaleTimeString()}: ${payload}`;
+            eventsLog.textContent = `${entry}\n${eventsLog.textContent}`;
+
+            const lines = eventsLog.textContent.split('\n');
+            if (lines.length > 80) {
+                eventsLog.textContent = lines.slice(0, 80).join('\n');
+            }
+        };
+
+        const renderWorkspaceSelect = () => {
+            runWorkspaceSelect.innerHTML = '';
+
+            if (!workspaces.length) {
+                const placeholder = document.createElement('option');
+                placeholder.textContent = 'Create a workspace first';
+                placeholder.value = '';
+                runWorkspaceSelect.appendChild(placeholder);
+                return;
+            }
+
+            for (const ws of workspaces) {
+                const option = document.createElement('option');
+                option.value = ws.id;
+                option.textContent = `${ws.name} (${ws.id})`;
+                runWorkspaceSelect.appendChild(option);
+            }
+        };
+
+        const renderWorkspaces = (items) => {
+            workspaces = items;
+            workspacesCount.textContent = `${items.length} workspaces`;
+
+            if (!items.length) {
+                workspacesBody.innerHTML = '<div class="muted">No workspaces yet.</div>';
+                return;
+            }
+
+            workspacesBody.innerHTML = items
+                .map((ws) => `<div><strong>${ws.id}</strong> <span class="small">${ws.name}</span></div>`)
+                .join('');
+
+            renderWorkspaceSelect();
+        };
+
+        const renderRuns = (runs) => {
+            runsCount.textContent = `${runs.length} runs`;
+            if (!runs.length) {
+                runList.innerHTML = '<tr><td colspan="6" class="muted">No runs yet.</td></tr>';
+                return;
+            }
+
+            runList.innerHTML = runs
+                .map((run) => {
+                    const cls = statusClassName(run.status);
+                    const isSelected = selectedRunId === run.run_id;
+                    return `
+                        <tr class="run-row ${isSelected ? 'selected' : ''}" data-run-id="${run.run_id}">
+                            <td class="small">${run.run_id}</td>
+                            <td class="small">${run.workspace_id}</td>
+                            <td><span class="${cls}">${run.status}</span></td>
+                            <td>${run.total_cost.toFixed(2)}</td>
+                            <td>${run.effort_points}</td>
+                            <td class="small">${formatDate(run.updated_at)}</td>
+                        </tr>
+                    `;
+                })
+                .join('');
+
+            if (!selectedRunId && runs[0]) {
+                selectedRunId = runs[0].run_id;
+                localStorage.setItem('selectedRunId', selectedRunId);
+            }
+
+            if (selectedRunId && !runs.some((r) => r.run_id === selectedRunId)) {
+                selectedRunId = runs[0].run_id;
+                localStorage.setItem('selectedRunId', selectedRunId);
+            }
+
+            runDetailId.textContent = selectedRunId ? `run_id: ${selectedRunId}` : 'select a run';
+
+            runList.querySelectorAll('tr[data-run-id]').forEach((row) => {
+                row.addEventListener('click', async () => {
+                    selectedRunId = row.dataset.runId;
+                    localStorage.setItem('selectedRunId', selectedRunId);
+                    await refreshRunDetail();
+                    highlightSelectedRun();
+                });
+            });
+
+            highlightSelectedRun();
+        };
+
+        const highlightSelectedRun = () => {
+            runList.querySelectorAll('tr[data-run-id]').forEach((row) => {
+                row.style.background = row.dataset.runId === selectedRunId ? 'rgba(96, 165, 250, 0.08)' : '';
+            });
+        };
+
+        const renderMetrics = (metrics) => {
+            metricEvents.textContent = metrics.total_events ?? '-';
+            metricStreams.textContent = metrics.event_stream_count ?? '-';
+            metricRuns.textContent = metrics.total_runs ?? '-';
+            metricStatus.textContent = `${metrics.running_runs || 0} / ${metrics.completed_runs || 0} / ${metrics.blocked_runs || 0}`;
+        };
+
+        const renderRunHistory = (history) => {
+            if (!history.length) {
+                runHistory.textContent = 'No effort/cost history yet.';
+                return;
+            }
+
+            runHistory.textContent = history
+                .map((point) => `rev=${point.revision} | ${point.occurred_at} | cost=${point.total_cost.toFixed(2)} effort=${point.total_effort}`)
+                .join('\n');
+        };
+
+        const renderRunTimeline = (timeline) => {
+            if (!timeline.length) {
+                runTimeline.textContent = 'No timeline entries yet.';
+                return;
+            }
+
+            runTimeline.textContent = timeline
+                .map((entry) => `${entry.occurred_at} [#${entry.revision}] ${renderTimelineEntry(entry)}`)
+                .join('\n');
+        };
+
+        const renderTimelineEntry = (entry) => {
+            const details = entry.details || {};
+            const eventType = entry.event_type;
+
+            switch (eventType) {
+                case 'run_started':
+                    return `run_started objective="${details.objective || '-'}"`;
+                case 'run_status_changed':
+                    return `run_status_changed status=${details.status || '-'} reason=${details.reason || '-'}`;
+                case 'work_item_assigned':
+                    return `work_item_assigned item=${details.item_id || '-'} agent=${details.agent_id || '-'}`;
+                case 'work_item_started':
+                    return `work_item_started item=${details.item_id || '-'} agent=${details.agent_id || '-'}`;
+                case 'work_item_completed':
+                    return `work_item_completed item=${details.item_id || '-'} effort=${details.effort || 0} cost=${details.cost || 0}`;
+                case 'work_item_failed':
+                    return `work_item_failed item=${details.item_id || '-'} reason=${details.reason || '-'}`;
+                case 'blocker_encountered':
+                    return `blocker_encountered item=${details.item_id || '-'} reason=${details.reason || '-'}`;
+                case 'progress_chunk_emitted':
+                    return `progress_chunk item=${details.item_id || '-'} effort=${details.effort || 0} cost=${details.cost || 0}`;
+                case 'run_completed':
+                    return `run_completed summary=${details.summary || '-'}`;
+                default:
+                    return `${eventType}: ${JSON.stringify(details)}`;
+            }
+        };
+
+        const renderRunWorkItems = (workItems) => {
+            if (!workItems.length) {
+                runWorkItems.innerHTML = '<tr><td colspan="3" class="muted">No work items yet.</td></tr>';
+                return;
+            }
+
+            runWorkItems.innerHTML = workItems
+                .map((item) => {
+                    const cls = statusClassName(item.status);
+                    return `<tr>
+                        <td class="small">${item.item_id}</td>
+                        <td><span class="${cls}">${item.status}</span></td>
+                        <td class="small">${item.assigned_agent_id || '-'}</td>
+                    </tr>`;
+                })
+                .join('');
+        };
+
+        const renderRunSummary = (run) => {
+            const eventType = run.latest_event_type || '-';
+            const updated = formatDate(run.updated_at);
+            runSummary.innerHTML = `
+                <div><strong>Status:</strong> <span class="${statusClassName(run.status)}">${run.status}</span></div>
+                <div><strong>Workspace:</strong> ${run.workspace_id}</div>
+                <div><strong>Effort:</strong> ${run.effort_points}</div>
+                <div><strong>Cost:</strong> ${run.total_cost.toFixed(2)}</div>
+                <div><strong>Events:</strong> ${run.stream_event_count} (latest #${run.stream_revision}: ${eventType})</div>
+                <div><strong>Updated:</strong> ${updated}</div>
+                <div><strong>Latest at:</strong> ${run.latest_event_at || '-'}</div>
+            `;
+        };
+
+        const refreshWorkspaces = async () => {
+            const result = await fetchJson(`${API_BASE}/api/workspaces`);
+            renderWorkspaces(result);
+            return result;
+        };
+
+        const refreshRuns = async () => {
+            const runs = await fetchJson(`${API_BASE}/api/runs`);
+            renderRuns(runs);
+            return runs;
+        };
+
+        const refreshRunDetail = async () => {
+            if (!selectedRunId) {
+                runSummary.textContent = 'select a run to inspect';
+                runWorkItems.innerHTML = '<tr><td colspan="3" class="muted">select a run.</td></tr>';
+                runHistory.textContent = '-';
+                runTimeline.textContent = '-';
+                return;
+            }
+
+            try {
+                const run = await fetchJson(`${API_BASE}/api/runs/${selectedRunId}`);
+                runDetailId.textContent = run.run_id;
+                renderRunSummary(run);
+                renderRunWorkItems(run.work_items || []);
+                renderRunHistory(run.cost_effort_history || []);
+                renderRunTimeline(run.timeline || []);
+            } catch (error) {
+                runSummary.textContent = `Error loading run detail: ${error.message}`;
+                runWorkItems.innerHTML = '<tr><td colspan="3" class="muted">failed to load.</td></tr>';
+                runHistory.textContent = '-';
+                runTimeline.textContent = '-';
+            }
+        };
+
+        const refreshAll = async () => {
+            try {
+                const [metrics, workspaces, runs] = await Promise.all([
+                    fetchJson(`${API_BASE}/api/metrics/overview`),
+                    refreshWorkspaces(),
+                    refreshRuns(),
+                ]);
+
+                renderMetrics(metrics);
+                await refreshRunDetail();
+            } catch (error) {
+                console.error(error);
+                const fallback = `polling error: ${error.message}`;
+                if (runSummary.textContent !== fallback) {
+                    runSummary.textContent = fallback;
+                }
+            }
+        };
+
+        const postRunControl = async (runId, action) => {
+            if (!runId) {
+                appendEventMessage('No selected run for action');
+                return;
+            }
+            const response = await postControl(`${API_BASE}/api/runs/${runId}/${action}`);
+            appendEventMessage(`${action} -> ${JSON.stringify(response)}`);
+            await refreshAll();
+        };
+
+        const postJson = async (url, init) => {
+            const res = await fetch(url, {
+                method: init?.method || 'POST',
+                headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
+                body: init?.body,
+            });
+            if (!res.ok) {
+                throw new Error(`${url} -> ${res.status}`);
+            }
+            return res.json();
+        };
+
+        const handleCreateWorkspace = async () => {
+            const name = workspaceNameInput.value.trim();
+            if (!name) {
+                return;
+            }
+
+            try {
+                const workspaceId = await postJson(`${API_BASE}/api/workspaces`, {
+                    body: JSON.stringify({ name }),
+                });
+                appendEventMessage(`created workspace ${workspaceId}`);
+                workspaceNameInput.value = '';
+                await refreshWorkspaces();
+                runWorkspaceSelect.value = workspaceId;
+            } catch (error) {
+                appendEventMessage(`create workspace failed: ${error.message}`);
+            }
+        };
+
+        const handleCreateRun = async () => {
+            const workspaceId = runWorkspaceSelect.value;
+            const objective = runObjectiveInput.value.trim();
+            const targetItemCount = parseInt(runTargetItemsInput.value, 10);
+            const agentCount = parseInt(runAgentCountInput.value, 10);
+
+            if (!workspaceId || !objective) {
+                appendEventMessage('Run creation requires workspace and objective');
+                return;
+            }
+
+            try {
+                const payload = {
+                    workspace_id: workspaceId,
+                    objective,
+                    target_item_count: Number.isInteger(targetItemCount) && targetItemCount > 0 ? targetItemCount : 4,
+                    agent_count: Number.isInteger(agentCount) && agentCount > 0 ? agentCount : 1,
+                };
+
+                const runId = await postJson(`${API_BASE}/api/runs`, {
+                    body: JSON.stringify(payload),
+                });
+                appendEventMessage(`created run ${runId}`);
+                runObjectiveInput.value = '';
+                selectedRunId = runId;
+                localStorage.setItem('selectedRunId', selectedRunId);
+                await refreshAll();
+            } catch (error) {
+                appendEventMessage(`create run failed: ${error.message}`);
+            }
+        };
+
+        const connectWebSocket = () => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+
+            wsStatus.textContent = 'connecting…';
+            ws = new WebSocket(`${API_BASE.replace('http://', 'ws://')}/ws`);
+
+            ws.onopen = () => {
+                wsStatus.textContent = 'connected';
+            };
+
+            ws.onmessage = (evt) => {
+                let message = evt.data;
+                try {
+                    const payload = JSON.parse(evt.data);
+                    if (payload?.resource_id && payload?.payload) {
+                        message = `event=${payload.payload.type || 'unknown'} resource=${payload.resource_id} revision=${payload.revision}`;
+                        if (selectedRunId && payload.resource_id === selectedRunId) {
+                            void refreshRunDetail();
+                        }
+                    }
+                } catch {
+                    // no-op fallback text payload
+                }
+                appendEventMessage(message);
+            };
+
+            ws.onclose = () => {
+                wsStatus.textContent = 'disconnected';
+            };
+
+            ws.onerror = () => {
+                wsStatus.textContent = 'error';
+            };
+        };
+        refreshBtn.addEventListener('click', refreshAll);
+        rebuildBtn.addEventListener('click', async () => {
+            try {
+                const response = await postControl(`${API_BASE}/api/projections/rebuild`);
+                appendEventMessage(`Rebuilt projections (${response.rebuilt_runs} runs)`);
+                await refreshAll();
+            } catch (error) {
+                appendEventMessage(`Rebuild failed: ${error.message}`);
+            }
+        });
+        reconnectBtn.addEventListener('click', connectWebSocket);
+
+        createWorkspaceBtn.addEventListener('click', handleCreateWorkspace);
+        createRunBtn.addEventListener('click', handleCreateRun);
+
+        pauseBtn.addEventListener('click', () => postRunControl(selectedRunId, 'pause'));
+        resumeBtn.addEventListener('click', () => postRunControl(selectedRunId, 'resume'));
+        cancelBtn.addEventListener('click', () => postRunControl(selectedRunId, 'cancel'));
+        retryBtn.addEventListener('click', () => postRunControl(selectedRunId, 'retry'));
+
+        refreshAll();
+        setInterval(refreshAll, POLL_MS);
+        connectWebSocket();
+    </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+[config]
+default_to_workspace = false
+
+[tasks.dev]
+description = "Run API and Workers"
+run_task = { name = ["run-api", "run-workers"], parallel = true }
+
+[tasks.run-api]
+command = "cargo"
+args = ["run", "-p", "api"]
+
+[tasks.run-workers]
+command = "cargo"
+args = ["run", "-p", "application", "--bin", "worker"]
+
+[tasks.rebuild-projections]
+command = "cargo"
+args = ["run", "-p", "application", "--bin", "rebuild-projections"]
+
+[tasks.serve-dashboard]
+description = "Serve tiny polling dashboard UI"
+command = "python3"
+args = ["-m", "http.server", "4173", "--directory", "crates/dashboard/frontend"]
+
+[tasks.test]
+command = "cargo"
+args = ["test", "--workspace"]
+
+[tasks.lint]
+command = "cargo"
+args = ["clippy", "--workspace", "--", "-D", "warnings"]
+
+[tasks.smoke]
+description = "Run a full API/workspace/run/rebuild smoke check"
+script = "work/smoke-test.sh"

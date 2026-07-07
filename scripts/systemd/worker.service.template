@@ -1,0 +1,25 @@
+[Unit]
+Description=Autonomous Agent Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=<REPO_DIR>
+EnvironmentFile=<REPO_DIR>/.env
+Environment=DATABASE_URL=postgres://user:pass@127.0.0.1:5432/agents_db
+Environment=WORKER_POLL_MS=1500
+Environment=WORKER_ITEMS_PER_LOOP=1
+Environment=WORKER_DB_CONNECT_ATTEMPTS=24
+Environment=WORKER_DB_CONNECT_BACKOFF_MS=500
+Environment=WORKER_DB_SCHEMA_ATTEMPTS=24
+Environment=WORKER_DB_SCHEMA_BACKOFF_MS=500
+ExecStart=<REPO_DIR>/scripts/service/run-worker.sh
+Restart=always
+RestartSec=2
+RestartPreventExitStatus=255
+StandardOutput=append:<REPO_DIR>/.dashboard-boot-worker.log
+StandardError=append:<REPO_DIR>/.dashboard-boot-worker.log
+
+[Install]
+WantedBy=default.target

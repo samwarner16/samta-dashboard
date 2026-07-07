@@ -1,0 +1,25 @@
+[Unit]
+Description=Autonomous Agent API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=<REPO_DIR>
+EnvironmentFile=<REPO_DIR>/.env
+Environment=DATABASE_URL=postgres://user:pass@127.0.0.1:5432/agents_db
+Environment=API_DB_CONNECT_ATTEMPTS=32
+Environment=API_DB_CONNECT_BACKOFF_MS=500
+Environment=API_DB_SCHEMA_ATTEMPTS=24
+Environment=API_DB_SCHEMA_BACKOFF_MS=500
+Environment=API_HOST=0.0.0.0
+Environment=API_PORT=8080
+ExecStart=<REPO_DIR>/scripts/service/run-api.sh
+Restart=always
+RestartSec=2
+RestartPreventExitStatus=255
+StandardOutput=append:<REPO_DIR>/.dashboard-boot-api.log
+StandardError=append:<REPO_DIR>/.dashboard-boot-api.log
+
+[Install]
+WantedBy=default.target

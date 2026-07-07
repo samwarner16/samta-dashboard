@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: agents_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  api:
+    build: .
+    command: cargo run -p api
+    environment:
+      - DATABASE_URL=postgres://user:pass@postgres:5432/agents_db
+      - REDIS_URL=redis://redis:6379/
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build: .
+    command: cargo run -p application --bin worker
+    environment:
+      - DATABASE_URL=postgres://user:pass@postgres:5432/agents_db
+      - REDIS_URL=redis://redis:6379/
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  pgdata:
