@@ -84,8 +84,14 @@ fi
 if command -v pkill >/dev/null 2>&1; then
   pkill -f "target/debug/api" >/dev/null 2>&1 || true
   pkill -f "target/debug/worker" >/dev/null 2>&1 || true
+  pkill -f "scripts/service/run-worker.sh" >/dev/null 2>&1 || true
   pkill -f "target/debug/rebuild-projections" >/dev/null 2>&1 || true
   pkill -f "python3 -m http.server 4173" >/dev/null 2>&1 || true
 fi
+
+if [ -x "${ROOT_DIR}/scripts/run-agent-harness.sh" ]; then
+  "${ROOT_DIR}/scripts/run-agent-harness.sh" stop >/dev/null 2>&1 || true
+fi
+rm -f "${ROOT_DIR}/.agent-harness.pids"
 
 log "All services stopped."

@@ -39,6 +39,7 @@ An interactive dashboard to spin up autonomous agents, assign tasks, monitor liv
 - `./scripts/shutdown-all.sh`: Stop API/worker/dashboard processes and `docker compose down`
 - `./scripts/systemd/*.service.template`: Optional Linux service templates
 - `./scripts/local-services.sh`: Install/start/stop local launchd/systemd or direct pid-based service wrappers
+- `./scripts/run-agent-harness.sh`: Run and inspect a local worker harness (multiple workers, optional affinity)
 
 Optional boot overrides:
 - `DATABASE_URL` (default `postgres://user:pass@127.0.0.1:5432/agents_db`)
@@ -53,6 +54,29 @@ Optional boot overrides:
 - `SMOKE_TARGET_ITEMS` / `SMOKE_AGENT_COUNT` (smoke run parameters)
 
 The `rebuild-projections` binary runs SQLx migrations and replays all events into the read projections.
+
+### Multi-worker harness
+
+Launch a local pool of workers that share the same event store:
+
+```bash
+./scripts/run-agent-harness.sh start 4
+```
+
+Harness controls:
+
+- `./scripts/run-agent-harness.sh status`
+- `./scripts/run-agent-harness.sh logs`
+- `./scripts/run-agent-harness.sh stop`
+
+Harness knobs:
+
+- `WORKER_AGENT_IDS` (comma-separated IDs, length controls count)
+- `WORKER_AGENT_ID` (single-worker mode override)
+- `WORKER_AGENT_ID_PREFIX` (deterministic seed for generated IDs)
+- `WORKER_POOL_SIZE` (default when count is omitted)
+- `WORKER_ITEM_AFFINITY=1` (only process work items assigned to worker agent)
+- `WORKER_ITEMS_PER_LOOP`, `WORKER_POLL_MS`, effort/cost and DB retry knobs
 
 ### Projection status endpoint
 

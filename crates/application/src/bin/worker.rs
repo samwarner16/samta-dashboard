@@ -14,6 +14,10 @@ use uuid::Uuid;
 #[tokio::main]
 async fn main() -> Result<()> {
     let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
+    let worker_agent_id = env::var("WORKER_AGENT_ID")
+        .ok()
+        .and_then(|id| Uuid::parse_str(&id).ok())
+        .unwrap_or_else(Uuid::new_v4);
     let poll_ms = env::var("WORKER_POLL_MS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -23,15 +27,17 @@ async fn main() -> Result<()> {
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|items| *items > 0)
         .unwrap_or(1);
+    let item_affinity = read_bool_env("WORKER_ITEM_AFFINITY", false);
 
     let mut event_store = connect_with_retry(&database_url).await?;
     let mut projection_store = PostgresProjectionStore::new(event_store.pool().clone());
-    let worker = Worker::new(Uuid::new_v4());
+    let worker = Worker::new(worker_agent_id);
 
     info!(
         "Worker started (agent={}) polling every {poll_ms}ms with max {max_items_per_loop} items per loop",
         worker.agent_id
     );
+    info!(agent_id = %worker.agent_id, item_affinity = item_affinity, "worker affinity enabled");
 
     let mut loop_failures = 0_u32;
     let fallback_effort = env::var("WORKER_EFFORT_PER_ITEM")
@@ -96,7 +102,17 @@ async fn main() -> Result<()> {
                 let item_id = state
                     .items
                     .iter()
-                    .find(|(_, item)| item.status == "assigned")
+                    .find(|(_, item)| {
+                        if item.status != "assigned" {
+                            return false;
+                        }
+
+                        if !item_affinity {
+                            return true;
+                        }
+
+                        item.assigned_agent_id == Some(worker.agent_id)
+                    })
                     .map(|(item_id, _)| *item_id);
 
                 let item_id = match item_id {
@@ -597,6 +613,18 @@ fn read_u32_env(key: &str, default: u32) -> u32 {
     env::var(key)
         .ok()
         .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(default)
+}
+
+fn read_bool_env(key: &str, default: bool) -> bool {
+    env::var(key)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.to_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
         .unwrap_or(default)
 }
 

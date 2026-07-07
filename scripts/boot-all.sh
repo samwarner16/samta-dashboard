@@ -298,10 +298,12 @@ wait_for_stack() {
   local api_url="http://127.0.0.1:${API_PORT:-8080}"
   local api_log
   local ui_log="${ROOT_DIR}/.dashboard-boot-ui.log"
-  local api_pid_file="${ROOT_DIR}/.dashboard-boot-api.pid"
+  local api_pid_file=""
 
   if [ "${BOOT_USE_SERVICE_WRAPPERS}" = "1" ]; then
-    api_pid_file="${BOOT_API_SERVICE_PID}"
+    if [ "${BOOT_SERVICE_MODE}" = "direct" ]; then
+      api_pid_file="${BOOT_API_SERVICE_PID}"
+    fi
   fi
 
   info "Waiting for API health (${api_url}/health)"

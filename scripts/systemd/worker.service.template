@@ -18,8 +18,8 @@ ExecStart=<REPO_DIR>/scripts/service/run-worker.sh
 Restart=always
 RestartSec=2
 RestartPreventExitStatus=255
-StandardOutput=append:<REPO_DIR>/.dashboard-boot-worker.log
-StandardError=append:<REPO_DIR>/.dashboard-boot-worker.log
+StandardOutput=append:<REPO_DIR>/.dashboard-worker-service.log
+StandardError=append:<REPO_DIR>/.dashboard-worker-service.err
 
 [Install]
 WantedBy=default.target

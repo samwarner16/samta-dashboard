@@ -10,6 +10,7 @@ a.env
 *.log
 *.err
 *.pid
+*.pids
 
 # Runtime/temp artifacts
 *.db

@@ -18,8 +18,8 @@ ExecStart=<REPO_DIR>/scripts/service/run-api.sh
 Restart=always
 RestartSec=2
 RestartPreventExitStatus=255
-StandardOutput=append:<REPO_DIR>/.dashboard-boot-api.log
-StandardError=append:<REPO_DIR>/.dashboard-boot-api.log
+StandardOutput=append:<REPO_DIR>/.dashboard-api-service.log
+StandardError=append:<REPO_DIR>/.dashboard-api-service.err
 
 [Install]
 WantedBy=default.target
