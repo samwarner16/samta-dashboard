@@ -1,6 +1,8 @@
 use crate::dto::{
+    CreateRunResponse,
     CostEffortHistoryPoint,
     CreateRunRequest,
+    CreateWorkspaceResponse,
     CreateWorkspaceRequest,
     OverviewMetricsResponse,
     ProjectionStatusResponse,
@@ -70,13 +72,13 @@ pub fn create_router(
 async fn create_workspace(
     State(state): State<AppState>,
     Json(payload): Json<CreateWorkspaceRequest>,
-) -> AxumResult<Json<Uuid>, (StatusCode, String)> {
+) -> AxumResult<Json<CreateWorkspaceResponse>, (StatusCode, String)> {
     let id = state
         .orchestrator
         .create_workspace(payload.name)
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
-    Ok(Json(id))
+    Ok(Json(CreateWorkspaceResponse { id }))
 }
 
 async fn list_workspaces(
@@ -126,7 +128,7 @@ async fn projection_status(
 async fn create_run(
     State(state): State<AppState>,
     Json(payload): Json<CreateRunRequest>,
-) -> AxumResult<Json<Uuid>, (StatusCode, String)> {
+) -> AxumResult<Json<CreateRunResponse>, (StatusCode, String)> {
     let workspace_id = payload.workspace_id;
     let target_item_count = payload.target_item_count.filter(|count| *count > 0);
     let agent_count = payload.agent_count.filter(|count| *count > 0);
@@ -146,7 +148,7 @@ async fn create_run(
     )
     .await?;
 
-    Ok(Json(id))
+    Ok(Json(CreateRunResponse { id }))
 }
 
 async fn upsert_run_projection(

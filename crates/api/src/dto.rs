@@ -19,6 +19,16 @@ pub struct CreateWorkspaceRequest {
 }
 
 #[derive(Debug, Serialize)]
+pub struct CreateWorkspaceResponse {
+    pub id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateRunResponse {
+    pub id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ProjectionStatusResponse {
     pub event_count: i64,
     pub run_projection_count: i64,

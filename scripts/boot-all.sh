@@ -4,6 +4,13 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
+if [ -f "${ROOT_DIR}/.env" ]; then
+  set -o allexport
+  # shellcheck disable=SC1091
+  source "${ROOT_DIR}/.env"
+  set +o allexport
+fi
+
 DEFAULT_API_URL="http://127.0.0.1:8080"
 DEFAULT_DASHBOARD_PORT="4173"
 DEFAULT_DASHBOARD_API_BASE="${DASHBOARD_API_BASE:-$DEFAULT_API_URL}"
@@ -14,6 +21,7 @@ BOOT_USE_SERVICE_WRAPPERS="${BOOT_USE_SERVICE_WRAPPERS:-0}"
 BOOT_WAIT_SECONDS="${BOOT_WAIT_SECONDS:-180}"
 BOOT_DB_WAIT_SECONDS="${BOOT_DB_WAIT_SECONDS:-60}"
 BOOT_DOCKER_WAIT_SECONDS="${BOOT_DOCKER_WAIT_SECONDS:-45}"
+BOOT_BUILD_FIRST="${BOOT_BUILD_FIRST:-1}"
 BOOT_AUTO_START_DOCKER="${BOOT_AUTO_START_DOCKER:-1}"
 BOOT_SERVICE_MODE="${BOOT_SERVICE_MODE:-launchd}"
 BOOT_API_SERVICE_PID="${ROOT_DIR}/.dashboard-api-service.pid"
@@ -38,6 +46,22 @@ require_cmd() {
     warn "Missing required command: $name"
     return 1
   fi
+}
+
+require_all_cmds() {
+  local missing=0
+  for name in docker cargo python3 jq; do
+    if ! require_cmd "${name}"; then
+      missing=1
+    fi
+  done
+
+  if ! docker compose version >/dev/null 2>&1; then
+    warn "Docker Compose plugin unavailable."
+    missing=1
+  fi
+
+  return "${missing}"
 }
 
 is_process_running() {
@@ -197,6 +221,12 @@ start_services() {
     docker compose down -v --remove-orphans
   fi
 
+  if [ "${BOOT_CLEAN_SLATE}" = "1" ]; then
+    info "Booting clean slate: removing stale database volume and recreation."
+  else
+    info "Booting with existing PostgreSQL data volume."
+  fi
+
   info "Starting docker stack (postgres + redis)..."
   docker compose up -d postgres redis
   if ! wait_for_postgres "${BOOT_DB_WAIT_SECONDS}"; then
@@ -220,7 +250,8 @@ start_api() {
 
   local logfile="${ROOT_DIR}/.dashboard-boot-api.log"
   info "Starting API (log: ${logfile})"
-  DATABASE_URL="${DATABASE_URL:-postgres://user:pass@127.0.0.1:5432/agents_db}" \
+  env \
+    DATABASE_URL="${DATABASE_URL:-postgres://user:pass@127.0.0.1:5432/agents_db}" \
     API_DB_CONNECT_ATTEMPTS="${API_DB_CONNECT_ATTEMPTS:-32}" \
     API_DB_CONNECT_BACKOFF_MS="${API_DB_CONNECT_BACKOFF_MS:-500}" \
     API_DB_SCHEMA_ATTEMPTS="${API_DB_SCHEMA_ATTEMPTS:-24}" \
@@ -247,7 +278,8 @@ start_worker() {
 
   local logfile="${ROOT_DIR}/.dashboard-boot-worker.log"
   info "Starting worker (log: ${logfile})"
-  DATABASE_URL="${DATABASE_URL:-postgres://user:pass@127.0.0.1:5432/agents_db}" \
+  env \
+    DATABASE_URL="${DATABASE_URL:-postgres://user:pass@127.0.0.1:5432/agents_db}" \
     WORKER_DB_CONNECT_ATTEMPTS="${WORKER_DB_CONNECT_ATTEMPTS:-24}" \
     WORKER_DB_CONNECT_BACKOFF_MS="${WORKER_DB_CONNECT_BACKOFF_MS:-500}" \
     WORKER_DB_SCHEMA_ATTEMPTS="${WORKER_DB_SCHEMA_ATTEMPTS:-24}" \
@@ -261,7 +293,8 @@ start_api_direct() {
   local pid_file="${BOOT_API_SERVICE_PID}"
 
   info "Starting API via run script (direct)"
-  DATABASE_URL="${DATABASE_URL:-postgres://user:pass@127.0.0.1:5432/agents_db}" \
+  env \
+    DATABASE_URL="${DATABASE_URL:-postgres://user:pass@127.0.0.1:5432/agents_db}" \
     API_DB_CONNECT_ATTEMPTS="${API_DB_CONNECT_ATTEMPTS:-32}" \
     API_DB_CONNECT_BACKOFF_MS="${API_DB_CONNECT_BACKOFF_MS:-500}" \
     API_DB_SCHEMA_ATTEMPTS="${API_DB_SCHEMA_ATTEMPTS:-24}" \
@@ -277,7 +310,8 @@ start_worker_direct() {
   local pid_file="${BOOT_WORKER_SERVICE_PID}"
 
   info "Starting worker via run script (direct)"
-  DATABASE_URL="${DATABASE_URL:-postgres://user:pass@127.0.0.1:5432/agents_db}" \
+  env \
+    DATABASE_URL="${DATABASE_URL:-postgres://user:pass@127.0.0.1:5432/agents_db}" \
     WORKER_DB_CONNECT_ATTEMPTS="${WORKER_DB_CONNECT_ATTEMPTS:-24}" \
     WORKER_DB_CONNECT_BACKOFF_MS="${WORKER_DB_CONNECT_BACKOFF_MS:-500}" \
     WORKER_DB_SCHEMA_ATTEMPTS="${WORKER_DB_SCHEMA_ATTEMPTS:-24}" \
@@ -289,7 +323,9 @@ start_worker_direct() {
 start_dashboard() {
   local logfile="${ROOT_DIR}/.dashboard-boot-ui.log"
   info "Starting dashboard on port ${DASHBOARD_PORT} (log: ${logfile})"
-  DASHBOARD_API_BASE="${DASHBOARD_API_BASE}" DASHBOARD_PORT="${DASHBOARD_PORT}" \
+  env \
+    DASHBOARD_API_BASE="${DASHBOARD_API_BASE}" \
+    DASHBOARD_PORT="${DASHBOARD_PORT}" \
     nohup scripts/start-dashboard.sh >"${logfile}" 2>&1 &
   echo $! > "${ROOT_DIR}/.dashboard-boot-ui.pid"
 }
@@ -323,10 +359,15 @@ wait_for_stack() {
   fi
 }
 
-main() {
-  require_cmd docker
-  require_cmd cargo
-  require_cmd python3
+  main() {
+    require_all_cmds
+  if [ "${BOOT_BUILD_FIRST}" != "0" ]; then
+    info "Prebuilding workspace binaries..."
+    if ! cargo build -p api -p application -p infra >/tmp/boot-build.log 2>&1; then
+      warn "Prebuild failed. See /tmp/boot-build.log for details."
+      exit 1
+    fi
+  fi
 
   info "Booting full stack..."
   cleanup_processes

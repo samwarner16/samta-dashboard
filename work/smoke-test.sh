@@ -80,6 +80,17 @@ extract_field() {
   jq -r ".${field} // empty" <<<"${json_payload}" | sed 's/^null$//' || true
 }
 
+extract_created_id() {
+  local json_payload="$1"
+  local id
+
+  id="$(jq -r '.id // empty' <<<"${json_payload}" | sed 's/^null$//' || true)"
+  if [ -z "${id}" ] || [ "${id}" = "null" ]; then
+    id="$(echo "${json_payload}" | tr -d '\"\\r\\n' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+  fi
+  echo "${id}"
+}
+
 require_cmd curl
 require_cmd docker
 require_cmd jq
@@ -99,7 +110,7 @@ done
 log "Creating workspace"
 workspace_payload="$(ok_or_fail post_json POST /api/workspaces "$(jq -n --arg name smoke-workspace '{"name": $name}' )")"
 validate_json "${workspace_payload}" "workspace response"
-workspace_id="$(echo "${workspace_payload}" | tr -d '\"\r\n')"
+workspace_id="$(extract_created_id "${workspace_payload}")"
 if [ -z "${workspace_id}" ]; then
   fail "Workspace creation returned empty id"
 fi
@@ -113,7 +124,7 @@ run_payload="$(ok_or_fail post_json POST /api/runs "$(jq -n \
   --argjson agent_count "${SMOKE_AGENT_COUNT}" \
   '{ workspace_id: $ws_id, objective: $obj, target_item_count: $target_items, agent_count: $agent_count }')")"
 validate_json "${run_payload}" "run create response"
-run_id="$(echo "${run_payload}" | tr -d '\"\r\n')"
+run_id="$(extract_created_id "${run_payload}")"
 if [ -z "${run_id}" ]; then
   fail "Run creation returned empty id"
 fi

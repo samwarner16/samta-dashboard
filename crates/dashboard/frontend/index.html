@@ -408,6 +408,7 @@
         let workspaces = [];
         let selectedRunId = localStorage.getItem('selectedRunId');
         let ws;
+        let wsRefreshInFlight = false;
 
         const formatDate = (value) => {
             if (!value) return '-';
@@ -702,6 +703,25 @@
             return res.json();
         };
 
+        const readIdFromCreateResponse = (payload) => {
+            if (typeof payload === 'string') {
+                return payload.trim().replace(/^"|"$/g, '');
+            }
+            if (payload && typeof payload === 'object') {
+                return payload.id || payload.run_id || payload.workspace_id || '';
+            }
+            return '';
+        };
+
+        const scheduleRefresh = () => {
+            if (wsRefreshInFlight) return;
+            wsRefreshInFlight = true;
+            setTimeout(() => {
+                wsRefreshInFlight = false;
+                void refreshAll();
+            }, 150);
+        };
+
         const handleCreateWorkspace = async () => {
             const name = workspaceNameInput.value.trim();
             if (!name) {
@@ -712,10 +732,16 @@
                 const workspaceId = await postJson(`${API_BASE}/api/workspaces`, {
                     body: JSON.stringify({ name }),
                 });
-                appendEventMessage(`created workspace ${workspaceId}`);
+                const createdId = readIdFromCreateResponse(workspaceId);
+                if (!createdId) {
+                    appendEventMessage(`create workspace failed: missing id`);
+                    return;
+                }
+
+                appendEventMessage(`created workspace ${createdId}`);
                 workspaceNameInput.value = '';
                 await refreshWorkspaces();
-                runWorkspaceSelect.value = workspaceId;
+                runWorkspaceSelect.value = createdId;
             } catch (error) {
                 appendEventMessage(`create workspace failed: ${error.message}`);
             }
@@ -740,9 +766,14 @@
                     agent_count: Number.isInteger(agentCount) && agentCount > 0 ? agentCount : 1,
                 };
 
-                const runId = await postJson(`${API_BASE}/api/runs`, {
+                const runPayload = await postJson(`${API_BASE}/api/runs`, {
                     body: JSON.stringify(payload),
                 });
+                const runId = readIdFromCreateResponse(runPayload);
+                if (!runId) {
+                    appendEventMessage(`create run failed: missing id`);
+                    return;
+                }
                 appendEventMessage(`created run ${runId}`);
                 runObjectiveInput.value = '';
                 selectedRunId = runId;
@@ -771,9 +802,7 @@
                     const payload = JSON.parse(evt.data);
                     if (payload?.resource_id && payload?.payload) {
                         message = `event=${payload.payload.type || 'unknown'} resource=${payload.resource_id} revision=${payload.revision}`;
-                        if (selectedRunId && payload.resource_id === selectedRunId) {
-                            void refreshRunDetail();
-                        }
+                        scheduleRefresh();
                     }
                 } catch {
                     // no-op fallback text payload

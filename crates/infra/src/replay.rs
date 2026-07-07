@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use events::{EventPayload};
 use uuid::Uuid;
 
@@ -14,7 +14,7 @@ struct RunProjectionState {
     status: String,
     total_cost: f64,
     effort_points: i32,
-    updated_at: chrono::DateTime<Utc>,
+    updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug)]

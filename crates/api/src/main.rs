@@ -17,17 +17,17 @@ use uuid::Uuid;
 use infra::persistence::EventStore;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let database_url = env::var("DATABASE_URL").context("DATABASE_URL must be set")?;
     let event_store = connect_with_retry(&database_url)
         .await
-        .expect("connect to database");
+        .context("connect to database")?;
 
     run_migrations(event_store.pool())
         .await
-        .expect("run SQLx migrations");
+        .context("run SQLx migrations")?;
 
     let event_store_pool = event_store.pool().clone();
 
@@ -44,13 +44,15 @@ async fn main() {
     let port = env::var("API_PORT").unwrap_or_else(|_| "8080".to_string());
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
-        .expect("invalid API host/port");
+        .context("invalid API host/port")?;
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
-        .unwrap();
+        .with_context(|| format!("failed to bind API listener at {addr}"))?;
     tracing::info!("API listening on {addr}");
-    axum::serve(listener, app).await.unwrap();
+    axum::serve(listener, app).await.context("api serve failed")?;
+
+    Ok(())
 }
 
 async fn connect_with_retry(database_url: &str) -> Result<PostgresEventStore> {
