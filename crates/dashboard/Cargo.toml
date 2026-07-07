@@ -3,6 +3,9 @@ name = "dashboard"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+tauri = ["dep:tauri"]
+
 [dependencies]
-tauri = { version = "1.5", features = ["shell-open"] }
+tauri = { version = "1.5", features = ["shell-open"], optional = true }
 serde_json.workspace = true

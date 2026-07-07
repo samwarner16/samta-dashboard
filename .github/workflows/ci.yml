@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace  # warnings are reported; -D warnings can be enabled after addressing pre-existing lints
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --workspace
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+  smoke:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # Best-effort smoke using GitHub service containers for postgres/redis.
+    # Real Docker-in-Docker not required because we exec the built binaries directly.
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+          POSTGRES_DB: agents_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install deps for smoke
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y jq curl
+
+      - name: Build binaries
+        run: cargo build -p api -p application --release
+
+      - name: Start API in background (direct binary)
+        env:
+          DATABASE_URL: postgres://user:pass@localhost:5432/agents_db
+          REDIS_URL: redis://localhost:6379/
+          API_HOST: 127.0.0.1
+          API_PORT: 8080
+        run: |
+          ./target/release/api &
+          echo $! > /tmp/api.pid
+          # wait for health
+          for i in {1..60}; do
+            if curl -sf http://127.0.0.1:8080/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8080/health || (echo "API did not become healthy" && exit 1)
+
+      - name: Run smoke test
+        env:
+          DATABASE_URL: postgres://user:pass@localhost:5432/agents_db
+          API_HOST: 127.0.0.1
+          API_PORT: 8080
+          SMOKE_TIMEOUT_SECONDS: 120
+          SMOKE_API_WAIT_SECONDS: 60
+          SMOKE_SKIP_DOCKER_UP: 1
+        run: ./work/smoke-test.sh
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f /tmp/api.pid ]; then
+            kill $(cat /tmp/api.pid) || true
+          fi

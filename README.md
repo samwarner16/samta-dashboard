@@ -24,22 +24,33 @@ An interactive dashboard to spin up autonomous agents, assign tasks, monitor liv
 ## Startup Steps
 
 1. `cp .env.example .env`
-2. Start the full stack with `./scripts/boot-all.sh` (default behavior is **clean slate**: stale containers/processes are removed and Postgres data volume is recreated)
-3. `DATABASE_URL=postgres://user:pass@127.0.0.1:5432/agents_db cargo run -p application --bin rebuild-projections` (or run migrations manually)
-4. Open dashboard UI at `http://127.0.0.1:4173` after boot
+2. Start the full stack with `BOOT_CLEAN_SLATE=1 ./scripts/boot-all.sh` (default is clean slate: removes stale processes/containers and recreates the Postgres volume)
+3. The API auto-runs migrations on boot. Use the `/api/projections/rebuild` endpoint or the `rebuild-projections` binary if you need a manual projection replay.
+4. Open dashboard UI at `http://127.0.0.1:4173/?api=http://127.0.0.1:8080` (or use `DASHBOARD_OPEN=1`).
+
+Primary commands (preferred):
+- `BOOT_CLEAN_SLATE=1 ./scripts/boot-all.sh`
+- `./work/smoke-test.sh`
+- `./scripts/shutdown-all.sh`
 
 ## Commands
 
-- `./work/smoke-test.sh`: End-to-end smoke validation (create workspace/run, rebuild projections, print counts)
-- `cargo make rebuild-projections`: Rebuild projection tables from event replay
-- `cargo make smoke`: Legacy alias for end-to-end validation
-- `cargo make serve-dashboard`: Serve frontend poller on `http://127.0.0.1:4173`
-- `./scripts/start-dashboard.sh`: Start dashboard at `http://127.0.0.1:4173`
-- `./scripts/boot-all.sh`: Start postgres/redis, kill stale app processes, start API, worker, and dashboard
-- `./scripts/shutdown-all.sh`: Stop API/worker/dashboard processes and `docker compose down`
-- `./scripts/systemd/*.service.template`: Optional Linux service templates
-- `./scripts/local-services.sh`: Install/start/stop local launchd/systemd or direct pid-based service wrappers
-- `./scripts/run-agent-harness.sh`: Run and inspect a local worker harness (multiple workers, optional affinity)
+**Primary (script-driven):**
+
+- `BOOT_CLEAN_SLATE=1 ./scripts/boot-all.sh` — full local stack (Postgres, Redis, API, worker, dashboard)
+- `./work/smoke-test.sh` — end-to-end smoke (workspace + run + projection + completion assertions)
+- `./scripts/shutdown-all.sh` — stop everything + docker compose down
+- `./scripts/start-dashboard.sh` — serve the static frontend on 4173 (polls the API)
+- `./scripts/run-agent-harness.sh start N` — launch N simulated workers (see harness section)
+- `./scripts/local-services.sh` — launchd/systemd or direct wrappers
+
+**Other useful:**
+
+- `./scripts/boot-all.sh` (without BOOT_CLEAN_SLATE) for incremental restarts
+- `cargo run -p application --bin rebuild-projections` — manual projection rebuild (rarely needed)
+- `cargo run -p api` / `cargo run -p application --bin worker` for manual component runs
+
+Legacy `cargo make` tasks (Makefile.toml) are present but no longer the recommended path. Scripts are authoritative.
 
 Optional boot overrides:
 - `DATABASE_URL` (default `postgres://user:pass@127.0.0.1:5432/agents_db`)
@@ -54,6 +65,8 @@ Optional boot overrides:
 - `SMOKE_TARGET_ITEMS` / `SMOKE_AGENT_COUNT` (smoke run parameters)
 
 The `rebuild-projections` binary runs SQLx migrations and replays all events into the read projections.
+
+See `PLAN.md` for the detailed parallel implementation plan covering the remaining goals + the long-term vision of agentic armies on high-VRAM GPU pods running batch Qwen 2.5 32B inference.
 
 ### Multi-worker harness
 
@@ -122,9 +135,18 @@ curl http://127.0.0.1:8080/api/metrics/overview
 
 ## Smoke test
 
-1. Ensure services are running: `docker compose up -d postgres redis`
-2. Run API in one terminal: `DATABASE_URL=postgres://user:pass@127.0.0.1:5432/agents_db cargo run -p api`
-3. In another terminal: `./work/smoke-test.sh`
+Preferred:
+
+```bash
+BOOT_CLEAN_SLATE=1 ./scripts/boot-all.sh
+./work/smoke-test.sh
+```
+
+Manual:
+
+1. `docker compose up -d postgres redis`
+2. In one terminal: `cargo run -p api`
+3. In another: `./work/smoke-test.sh`
 
 ### Run control endpoints
 

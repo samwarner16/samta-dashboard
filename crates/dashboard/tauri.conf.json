@@ -1,0 +1,41 @@
+{
+  "build": {
+    "distDir": "frontend",
+    "devPath": "frontend",
+    "beforeDevCommand": "",
+    "beforeBuildCommand": ""
+  },
+  "tauri": {
+    "bundle": {
+      "active": false,
+      "targets": "all",
+      "identifier": "com.samwarner16.samta-dashboard",
+      "icon": [],
+      "resources": [],
+      "externalBin": [],
+      "copyright": "",
+      "category": "DeveloperTool",
+      "shortDescription": "",
+      "longDescription": ""
+    },
+    "allowlist": {
+      "all": false,
+      "shell": {
+        "open": true
+      }
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "SAMTA Dashboard",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  }
+}

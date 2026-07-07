@@ -96,7 +96,11 @@ require_cmd docker
 require_cmd jq
 
 log "Checking postgres + redis"
-ok_or_fail docker compose up -d postgres redis
+if [ "${SMOKE_SKIP_DOCKER_UP:-0}" != "1" ]; then
+  ok_or_fail docker compose up -d postgres redis
+else
+  log "Skipping docker compose up (SMOKE_SKIP_DOCKER_UP=1)"
+fi
 
 log "Waiting for API readiness"
 deadline=$((SECONDS + SMOKE_API_WAIT_SECONDS))

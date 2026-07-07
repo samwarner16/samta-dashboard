@@ -105,7 +105,12 @@ impl Worker {
         }
     }
 
-    pub fn complete_event(&self, run_id: Uuid, revision: i32, total_completed_items: i32) -> EventEnvelope {
+    pub fn complete_event(
+        &self,
+        run_id: Uuid,
+        revision: i32,
+        total_completed_items: i32,
+    ) -> EventEnvelope {
         EventEnvelope {
             id: Uuid::new_v4(),
             occurred_at: Utc::now(),
@@ -122,7 +127,13 @@ impl Worker {
         }
     }
 
-    pub fn item_failed_event(&self, run_id: Uuid, item_id: Uuid, revision: i32, reason: String) -> EventEnvelope {
+    pub fn item_failed_event(
+        &self,
+        run_id: Uuid,
+        item_id: Uuid,
+        revision: i32,
+        reason: String,
+    ) -> EventEnvelope {
         EventEnvelope {
             id: Uuid::new_v4(),
             occurred_at: Utc::now(),

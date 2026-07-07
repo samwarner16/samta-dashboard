@@ -3,10 +3,13 @@ use std::env;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use application::harness::{events_for_execution, AgentExecutor, ExecutionContext};
 use application::worker::Worker;
 use chrono::{DateTime, Utc};
 use events::{EventEnvelope, EventPayload};
-use infra::persistence::{EventStore, PostgresEventStore, PostgresProjectionStore, ProjectionStore};
+use infra::persistence::{
+    EventStore, PostgresEventStore, PostgresProjectionStore, ProjectionStore,
+};
 use tokio::time::sleep;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -33,23 +36,22 @@ async fn main() -> Result<()> {
     let mut projection_store = PostgresProjectionStore::new(event_store.pool().clone());
     let worker = Worker::new(worker_agent_id);
 
+    // The harness (executor) is chosen here. Supported modes (via HARNESS_CONTROLLER env):
+    // - simulated (default)
+    // - api_endpoint  (HARNESS_API_ENDPOINT=... )  → harness controlled by external API
+    // - local_llm / gpu (HARNESS_LLM_BASE_URL=..., HARNESS_LLM_MODEL=...) → LLM on local GPU card(s)
+    //
+    // This allows the exact same worker binary to run either as an API-driven client
+    // or as the brain for a full local LLM (Qwen etc.) spun up on high-VRAM graphics hardware.
+    let executor: Box<dyn AgentExecutor> = application::harness::create_executor_from_env(worker_agent_id);
+
     info!(
         "Worker started (agent={}) polling every {poll_ms}ms with max {max_items_per_loop} items per loop",
         worker.agent_id
     );
-    info!(agent_id = %worker.agent_id, item_affinity = item_affinity, "worker affinity enabled");
+    info!(agent_id = %worker.agent_id, item_affinity = item_affinity, "worker affinity enabled (harness=simulated)");
 
     let mut loop_failures = 0_u32;
-    let fallback_effort = env::var("WORKER_EFFORT_PER_ITEM")
-        .ok()
-        .and_then(|value| value.parse::<i32>().ok())
-        .filter(|effort| *effort > 0)
-        .unwrap_or(5);
-    let fallback_cost = env::var("WORKER_COST_PER_ITEM")
-        .ok()
-        .and_then(|value| value.parse::<f64>().ok())
-        .filter(|cost| *cost >= 0.0)
-        .unwrap_or(0.25);
     let append_max_attempts = read_u32_env("WORKER_APPEND_ATTEMPTS", 4);
     let append_backoff_ms = read_u64_env("WORKER_APPEND_BACKOFF_MS", 500);
 
@@ -126,8 +128,7 @@ async fn main() -> Result<()> {
                     .and_then(|item| item.assigned_agent_id)
                     .unwrap_or_else(|| worker.agent_id);
 
-                let progress_effort = fallback_effort / 2;
-                let progress_cost = fallback_cost / 2.0;
+                let description = format!("item-{}", item_id); // In real flows we would carry the WorkItem description.
 
                 if let Some(item_state) = state.items.get_mut(&item_id) {
                     if item_state.status != "assigned" {
@@ -136,41 +137,69 @@ async fn main() -> Result<()> {
                     item_state.status = "running".to_string();
                 }
 
+                // Delegate the actual "thinking + doing" to the harness.
+                let ctx = ExecutionContext {
+                    run_id: *run_id,
+                    item_id,
+                    agent_id: item_agent_id,
+                    description,
+                };
+                let exec_result = match executor.execute(ctx).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!(error = %e, "executor failed for item");
+                        // fall back to a failed item event
+                        next_revision += 1;
+                        run_events.push(worker.item_failed_event(
+                            *run_id,
+                            item_id,
+                            next_revision,
+                            e.to_string(),
+                        ));
+                        if let Some(item_state) = state.items.get_mut(&item_id) {
+                            item_state.status = "failed".to_string();
+                        }
+                        state.status = "blocked".to_string();
+                        processed_count += 1;
+                        continue;
+                    }
+                };
+
                 next_revision += 1;
-                let started =
-                    worker.item_started_event(*run_id, item_id, next_revision, item_agent_id);
-                next_revision += 1;
-                let completed = worker.item_completed_event(
+                let exec_events = events_for_execution(
+                    &worker,
                     *run_id,
                     item_id,
                     next_revision,
-                    fallback_effort,
-                    fallback_cost,
                     item_agent_id,
+                    &exec_result,
                 );
+                // events_for_execution already advanced logical revisions; adjust next_revision from last produced
+                if let Some(last) = exec_events.last() {
+                    next_revision = last.revision;
+                }
+                run_events.extend(exec_events);
 
-                run_events.push(started);
-                run_events.push(completed);
-
-                next_revision += 1;
-                run_events.push(worker.progress_chunk_event(
-                    *run_id,
-                    item_id,
-                    next_revision,
-                    progress_effort,
-                    progress_cost,
-                    item_agent_id,
-                ));
-
-                if let Some(item_state) = state.items.get_mut(&item_id) {
-                    item_state.status = "completed".to_string();
+                if exec_result.success {
+                    if let Some(item_state) = state.items.get_mut(&item_id) {
+                        item_state.status = "completed".to_string();
+                    }
+                    state.total_cost += exec_result.cost;
+                    state.effort_points += exec_result.effort;
+                } else {
+                    if let Some(item_state) = state.items.get_mut(&item_id) {
+                        item_state.status = "failed".to_string();
+                    }
+                    state.status = "blocked".to_string();
                 }
 
-                state.total_cost += fallback_cost + progress_cost;
-                state.effort_points += fallback_effort + progress_effort;
                 state.latest_revision = next_revision;
                 state.updated_at = Utc::now();
-                state.status = "running".to_string();
+                state.status = if state.status == "blocked" {
+                    "blocked".to_string()
+                } else {
+                    "running".to_string()
+                };
 
                 processed_count += 1;
             }
@@ -178,7 +207,11 @@ async fn main() -> Result<()> {
             if all_items_completed(state) {
                 if state.status != "completed" {
                     next_revision += 1;
-                    run_events.push(worker.complete_event(*run_id, next_revision, state.completed_item_count()));
+                    run_events.push(worker.complete_event(
+                        *run_id,
+                        next_revision,
+                        state.completed_item_count(),
+                    ));
                     state.status = "completed".to_string();
                     state.latest_revision = next_revision;
                     state.updated_at = Utc::now();
@@ -204,13 +237,8 @@ async fn main() -> Result<()> {
                 continue;
             }
 
-            if let Err(error) = update_run_projections(
-                &state,
-                &projection_store,
-                *run_id,
-                &run_events,
-            )
-            .await
+            if let Err(error) =
+                update_run_projections(&state, &projection_store, *run_id, &run_events).await
             {
                 error!(run_id = %run_id, %error, "failed to upsert run projections");
             }
@@ -270,14 +298,10 @@ fn item_status_from_payload(
 ) -> Option<(Uuid, &'static str, Option<Uuid>)> {
     match event_payload {
         EventPayload::WorkItemAssigned {
-            item_id,
-            agent_id,
-            ..
+            item_id, agent_id, ..
         } => Some((*item_id, "assigned", Some(*agent_id))),
         EventPayload::WorkItemStarted {
-            item_id,
-            agent_id,
-            ..
+            item_id, agent_id, ..
         } => Some((*item_id, "running", Some(*agent_id))),
         EventPayload::WorkItemCompleted { item_id, .. } => {
             Some((*item_id, "completed", fallback_agent_id))
@@ -335,9 +359,7 @@ fn run_states_from_events(events: &[EventEnvelope]) -> HashMap<Uuid, RunState> {
                 state.status = "running".to_string();
             }
             EventPayload::WorkItemAssigned {
-                item_id,
-                agent_id,
-                ..
+                item_id, agent_id, ..
             } => {
                 let item = state.items.entry(*item_id).or_insert_with(|| ItemState {
                     status: "assigned".to_string(),
@@ -347,9 +369,7 @@ fn run_states_from_events(events: &[EventEnvelope]) -> HashMap<Uuid, RunState> {
                 item.assigned_agent_id = Some(*agent_id);
             }
             EventPayload::WorkItemStarted {
-                item_id,
-                agent_id,
-                ..
+                item_id, agent_id, ..
             } => {
                 let item = state.items.entry(*item_id).or_insert_with(|| ItemState {
                     status: "running".to_string(),
@@ -364,21 +384,23 @@ fn run_states_from_events(events: &[EventEnvelope]) -> HashMap<Uuid, RunState> {
                 cost,
                 ..
             } => {
-                let item = state.items.entry(*item_id).or_insert_with(ItemState::default);
+                let item = state
+                    .items
+                    .entry(*item_id)
+                    .or_insert_with(ItemState::default);
                 item.status = "completed".to_string();
                 state.total_cost += *cost;
                 state.effort_points += *effort;
             }
             EventPayload::WorkItemFailed { item_id, .. } => {
-                let item = state.items.entry(*item_id).or_insert_with(ItemState::default);
+                let item = state
+                    .items
+                    .entry(*item_id)
+                    .or_insert_with(ItemState::default);
                 item.status = "failed".to_string();
                 state.status = "blocked".to_string();
             }
-            EventPayload::ProgressChunkEmitted {
-                effort,
-                cost,
-                ..
-            } => {
+            EventPayload::ProgressChunkEmitted { effort, cost, .. } => {
                 state.total_cost += *cost;
                 state.effort_points += *effort;
             }
@@ -503,7 +525,9 @@ async fn update_run_projections(
             })
             .and_then(|item| item.assigned_agent_id);
 
-        if let Some((item_id, item_status, assigned_agent_id)) = item_status_from_payload(&event.payload, assigned_agent) {
+        if let Some((item_id, item_status, assigned_agent_id)) =
+            item_status_from_payload(&event.payload, assigned_agent)
+        {
             projection_store
                 .upsert_work_item_projection(item_id, run_id, item_status, assigned_agent_id)
                 .await?;
@@ -540,7 +564,9 @@ async fn connect_with_retry(database_url: &str) -> Result<PostgresEventStore> {
         attempts += 1;
         match PostgresEventStore::connect(database_url).await {
             Ok(store) => {
-                if let Err(err) = wait_for_store_ready(&store, max_schema_attempts, schema_backoff_ms).await {
+                if let Err(err) =
+                    wait_for_store_ready(&store, max_schema_attempts, schema_backoff_ms).await
+                {
                     if attempts >= max_attempts {
                         return Err(err).context("Postgres ready check failed before timeout");
                     }
@@ -553,7 +579,10 @@ async fn connect_with_retry(database_url: &str) -> Result<PostgresEventStore> {
                         "Postgres connected but event store schema is not ready"
                     );
                 } else {
-                    info!(attempt = attempts, "Connected to Postgres and validated event schema");
+                    info!(
+                        attempt = attempts,
+                        "Connected to Postgres and validated event schema"
+                    );
                     return Ok(store);
                 }
             }
@@ -619,12 +648,7 @@ fn read_u32_env(key: &str, default: u32) -> u32 {
 fn read_bool_env(key: &str, default: bool) -> bool {
     env::var(key)
         .ok()
-        .map(|value| {
-            matches!(
-                value.to_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
+        .map(|value| matches!(value.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
         .unwrap_or(default)
 }
 

@@ -18,7 +18,10 @@ pub struct Orchestrator {
 }
 
 impl Orchestrator {
-    pub fn new(event_store: std::sync::Arc<dyn EventStore>, ws_gateway: std::sync::Arc<WsGateway>) -> Self {
+    pub fn new(
+        event_store: std::sync::Arc<dyn EventStore>,
+        ws_gateway: std::sync::Arc<WsGateway>,
+    ) -> Self {
         Self {
             event_store,
             ws_gateway,
@@ -128,11 +131,13 @@ impl Orchestrator {
     }
 
     pub async fn pause_run(&self, run_id: Uuid) -> Result<bool> {
-        self.change_status(run_id, "paused", Some("manual pause".to_string())).await
+        self.change_status(run_id, "paused", Some("manual pause".to_string()))
+            .await
     }
 
     pub async fn resume_run(&self, run_id: Uuid) -> Result<bool> {
-        self.change_status(run_id, "running", Some("manual resume".to_string())).await
+        self.change_status(run_id, "running", Some("manual resume".to_string()))
+            .await
     }
 
     pub async fn cancel_run(&self, run_id: Uuid) -> Result<bool> {
@@ -204,7 +209,12 @@ impl Orchestrator {
         Ok(true)
     }
 
-    async fn change_status(&self, run_id: Uuid, status: &str, reason: Option<String>) -> Result<bool> {
+    async fn change_status(
+        &self,
+        run_id: Uuid,
+        status: &str,
+        reason: Option<String>,
+    ) -> Result<bool> {
         let events = self.event_store.load(run_id).await?;
         if events.is_empty() {
             return Err(anyhow!("run {run_id} not found"));
@@ -299,44 +309,59 @@ impl RunReplayState {
                     state.status = status.clone();
                 }
                 EventPayload::WorkItemAssigned {
-                    item_id,
-                    agent_id,
-                    ..
+                    item_id, agent_id, ..
                 } => {
-                    let entry = state.work_items.entry(*item_id).or_insert(WorkItemReplayState {
-                        status: "assigned".to_string(),
-                        assigned_agent_id: Some(*agent_id),
-                    });
+                    let entry = state
+                        .work_items
+                        .entry(*item_id)
+                        .or_insert(WorkItemReplayState {
+                            status: "assigned".to_string(),
+                            assigned_agent_id: Some(*agent_id),
+                        });
                     entry.status = "assigned".to_string();
                     entry.assigned_agent_id = Some(*agent_id);
                 }
-                EventPayload::WorkItemStarted { item_id, agent_id, .. } => {
-                    let entry = state.work_items.entry(*item_id).or_insert(WorkItemReplayState {
-                        status: "running".to_string(),
-                        assigned_agent_id: Some(*agent_id),
-                    });
+                EventPayload::WorkItemStarted {
+                    item_id, agent_id, ..
+                } => {
+                    let entry = state
+                        .work_items
+                        .entry(*item_id)
+                        .or_insert(WorkItemReplayState {
+                            status: "running".to_string(),
+                            assigned_agent_id: Some(*agent_id),
+                        });
                     entry.status = "running".to_string();
                     entry.assigned_agent_id = Some(*agent_id);
                 }
                 EventPayload::WorkItemCompleted { item_id, .. } => {
-                    let entry = state.work_items.entry(*item_id).or_insert(WorkItemReplayState {
-                        status: "completed".to_string(),
-                        assigned_agent_id: None,
-                    });
+                    let entry = state
+                        .work_items
+                        .entry(*item_id)
+                        .or_insert(WorkItemReplayState {
+                            status: "completed".to_string(),
+                            assigned_agent_id: None,
+                        });
                     entry.status = "completed".to_string();
                 }
                 EventPayload::WorkItemFailed { item_id, .. } => {
-                    let entry = state.work_items.entry(*item_id).or_insert(WorkItemReplayState {
-                        status: "failed".to_string(),
-                        assigned_agent_id: None,
-                    });
+                    let entry = state
+                        .work_items
+                        .entry(*item_id)
+                        .or_insert(WorkItemReplayState {
+                            status: "failed".to_string(),
+                            assigned_agent_id: None,
+                        });
                     entry.status = "failed".to_string();
                 }
                 EventPayload::BlockerEncountered { item_id, .. } => {
-                    let entry = state.work_items.entry(*item_id).or_insert(WorkItemReplayState {
-                        status: "blocked".to_string(),
-                        assigned_agent_id: None,
-                    });
+                    let entry = state
+                        .work_items
+                        .entry(*item_id)
+                        .or_insert(WorkItemReplayState {
+                            status: "blocked".to_string(),
+                            assigned_agent_id: None,
+                        });
                     entry.status = "blocked".to_string();
                     state.status = "blocked".to_string();
                 }

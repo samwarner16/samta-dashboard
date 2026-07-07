@@ -1,8 +1,12 @@
 use std::env;
 
-use anyhow::Result;
-use infra::{migrations::run_migrations, persistence::{PostgresEventStore, PostgresProjectionStore}, replay::rebuild_projections};
 use anyhow::Context;
+use anyhow::Result;
+use infra::{
+    migrations::run_migrations,
+    persistence::{PostgresEventStore, PostgresProjectionStore},
+    replay::rebuild_projections,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {

@@ -25,10 +25,16 @@ impl Planner {
     }
 
     pub fn resolve_agent_count(&self, requested_agent_count: Option<u16>) -> usize {
-        requested_agent_count.unwrap_or(1).clamp(1, self.max_agents as u16) as usize
+        requested_agent_count
+            .unwrap_or(1)
+            .clamp(1, self.max_agents as u16) as usize
     }
 
-    pub async fn decompose_objective(&self, run_id: Uuid, objective: String) -> Result<Vec<WorkItem>> {
+    pub async fn decompose_objective(
+        &self,
+        run_id: Uuid,
+        objective: String,
+    ) -> Result<Vec<WorkItem>> {
         self.decompose_objective_with_target(run_id, objective, self.default_target_item_count)
             .await
     }
@@ -45,7 +51,8 @@ impl Planner {
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>();
 
-        let chunk_width = (objective_words.len() + item_target_count.saturating_sub(1)).saturating_div(item_target_count);
+        let chunk_width = (objective_words.len() + item_target_count.saturating_sub(1))
+            .saturating_div(item_target_count);
         let chunk_width = chunk_width.max(1);
 
         let chunks = objective_words
@@ -70,7 +77,10 @@ impl Planner {
                 .collect());
         }
 
-        let fallback_count = self.default_target_item_count.min(item_target_count).min(self.max_target_items);
+        let fallback_count = self
+            .default_target_item_count
+            .min(item_target_count)
+            .min(self.max_target_items);
         let fallback = [
             "Understand objective",
             "Execute supporting checks",

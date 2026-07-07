@@ -1,30 +1,19 @@
 use crate::dto::{
-    CreateRunResponse,
-    CostEffortHistoryPoint,
-    CreateRunRequest,
-    CreateWorkspaceResponse,
-    CreateWorkspaceRequest,
-    OverviewMetricsResponse,
-    ProjectionStatusResponse,
-    RebuildProjectionsResponse,
-    RunActionResponse,
-    RunStatusResponse,
-    RunSummaryResponse,
-    TimelineEventResponse,
-    WorkspaceResponse,
-    WorkItemStatusResponse,
+    CostEffortHistoryPoint, CreateRunRequest, CreateRunResponse, CreateWorkspaceRequest,
+    CreateWorkspaceResponse, OverviewMetricsResponse, ProjectionStatusResponse,
+    RebuildProjectionsResponse, RunActionResponse, RunStatusResponse, RunSummaryResponse,
+    TimelineEventResponse, WorkItemStatusResponse, WorkspaceResponse,
 };
 use crate::ws::ws_handler;
 use application::orchestrator::Orchestrator;
-use chrono::Utc;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::Result as AxumResult,
-    Json,
     routing::{get, post},
-    Router,
+    Json, Router,
 };
+use chrono::Utc;
 use infra::{
     persistence::{PostgresEventStore, PostgresProjectionStore},
     replay::rebuild_projections,
@@ -55,7 +44,10 @@ pub fn create_router(
 
     Router::new()
         .route("/health", get(|| async { "OK" }))
-        .route("/api/workspaces", get(list_workspaces).post(create_workspace))
+        .route(
+            "/api/workspaces",
+            get(list_workspaces).post(create_workspace),
+        )
         .route("/api/runs", get(list_runs).post(create_run))
         .route("/api/runs/:run_id", get(run_status))
         .route("/api/runs/:run_id/pause", post(pause_run))
@@ -64,7 +56,10 @@ pub fn create_router(
         .route("/api/runs/:run_id/retry", post(retry_run))
         .route("/ws", get(ws_handler))
         .route("/api/projections/status", get(projection_status))
-        .route("/api/projections/rebuild", post(rebuild_projections_handler))
+        .route(
+            "/api/projections/rebuild",
+            post(rebuild_projections_handler),
+        )
         .route("/api/metrics/overview", get(overview_metrics))
         .with_state(state)
 }
@@ -114,10 +109,11 @@ async fn projection_status(
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    let run_projection_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs_projection")
-        .fetch_one(&state.db_pool)
-        .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let run_projection_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs_projection")
+            .fetch_one(&state.db_pool)
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     Ok(Json(ProjectionStatusResponse {
         event_count,
@@ -135,18 +131,16 @@ async fn create_run(
 
     let id = state
         .orchestrator
-        .start_run(workspace_id, payload.objective, target_item_count, agent_count)
+        .start_run(
+            workspace_id,
+            payload.objective,
+            target_item_count,
+            agent_count,
+        )
         .await
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    upsert_run_projection(
-        &state.db_pool,
-        id,
-        workspace_id,
-        "running",
-        Utc::now(),
-    )
-    .await?;
+    upsert_run_projection(&state.db_pool, id, workspace_id, "running", Utc::now()).await?;
 
     Ok(Json(CreateRunResponse { id }))
 }
@@ -267,8 +261,8 @@ async fn run_status(
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    let (run_id, workspace_id, status, total_cost, effort_points, updated_at) = projection_row
-        .ok_or((StatusCode::NOT_FOUND, "run not found".to_string()))?;
+    let (run_id, workspace_id, status, total_cost, effort_points, updated_at) =
+        projection_row.ok_or((StatusCode::NOT_FOUND, "run not found".to_string()))?;
 
     let stream_event_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM event_log WHERE resource_id = $1")
@@ -310,10 +304,8 @@ async fn run_status(
         })
         .collect();
 
-    let timeline_rows = sqlx::query_as::<
-        _,
-        (i32, String, String, Value),
-    >("
+    let timeline_rows = sqlx::query_as::<_, (i32, String, String, Value)>(
+        "
         SELECT revision,
                event_type,
                to_char(occurred_at, 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') AS occurred_at,
@@ -321,7 +313,8 @@ async fn run_status(
         FROM event_log
         WHERE resource_id = $1
         ORDER BY revision ASC
-    ")
+    ",
+    )
     .bind(run_id)
     .fetch_all(&state.db_pool)
     .await
@@ -329,12 +322,14 @@ async fn run_status(
 
     let timeline = timeline_rows
         .iter()
-        .map(|(revision, event_type, occurred_at, details)| TimelineEventResponse {
-            revision: *revision,
-            event_type: event_type.clone(),
-            occurred_at: occurred_at.clone(),
-            details: details.clone(),
-        })
+        .map(
+            |(revision, event_type, occurred_at, details)| TimelineEventResponse {
+                revision: *revision,
+                event_type: event_type.clone(),
+                occurred_at: occurred_at.clone(),
+                details: details.clone(),
+            },
+        )
         .collect::<Vec<_>>();
 
     let cost_effort_history = build_cost_effort_history(&timeline_rows);
@@ -386,16 +381,18 @@ fn extract_effort_cost(event_type: &str, details: &Value) -> (i32, f64) {
                 .get("effort")
                 .and_then(Value::as_i64)
                 .map_or(0, |value| value as i32);
-            let cost = details
-                .get("cost")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0);
+            let cost = details.get("cost").and_then(Value::as_f64).unwrap_or(0.0);
             (effort, cost)
         }
-        "work_item_started" | "work_item_assigned" | "work_item_failed" | "blocker_encountered" |
-        "run_started" | "run_completed" | "run_status_changed" | "workspace_created" | "agent_profile_created" => {
-            (0, 0.0)
-        }
+        "work_item_started"
+        | "work_item_assigned"
+        | "work_item_failed"
+        | "blocker_encountered"
+        | "run_started"
+        | "run_completed"
+        | "run_status_changed"
+        | "workspace_created"
+        | "agent_profile_created" => (0, 0.0),
         _ => {
             if let Some(payload_event_type) = details.get("type").and_then(Value::as_str) {
                 return extract_effort_cost(payload_event_type, details);
@@ -426,11 +423,10 @@ async fn overview_metrics(
     .await
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    let total_runs: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs_projection")
-            .fetch_one(&state.db_pool)
-            .await
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let total_runs: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs_projection")
+        .fetch_one(&state.db_pool)
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     let running_runs: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM agent_runs_projection WHERE status = 'running'")
@@ -450,11 +446,10 @@ async fn overview_metrics(
             .await
             .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    let total_work_items: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM work_items_projection")
-            .fetch_one(&state.db_pool)
-            .await
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    let total_work_items: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM work_items_projection")
+        .fetch_one(&state.db_pool)
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
     let last_event_at = sqlx::query_scalar::<_, Option<String>>(
         "SELECT to_char(MAX(occurred_at), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') FROM event_log",
@@ -481,14 +476,11 @@ async fn rebuild_projections_handler(
 ) -> AxumResult<Json<RebuildProjectionsResponse>, (StatusCode, String)> {
     let event_store = PostgresEventStore::new(state.db_pool.clone());
     let projection_store = PostgresProjectionStore::new(state.db_pool.clone());
-    let rebuilt_runs =
-        rebuild_projections(&event_store, &projection_store).await.map_err(|error| {
-            (StatusCode::INTERNAL_SERVER_ERROR, error.to_string())
-        })?;
+    let rebuilt_runs = rebuild_projections(&event_store, &projection_store)
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
 
-    Ok(Json(RebuildProjectionsResponse {
-        rebuilt_runs,
-    }))
+    Ok(Json(RebuildProjectionsResponse { rebuilt_runs }))
 }
 
 async fn pause_run(
@@ -609,14 +601,16 @@ async fn fetch_run_workspace(
     db_pool: &PgPool,
     run_id: Uuid,
 ) -> Result<Option<Uuid>, (StatusCode, String)> {
-    let row = sqlx::query_scalar::<_, Option<Uuid>>("
+    let row = sqlx::query_scalar::<_, Option<Uuid>>(
+        "
         SELECT (payload->>'workspace_id')::uuid
         FROM event_log
         WHERE resource_id = $1
           AND event_type = 'run_started'
           AND payload ? 'workspace_id'
         LIMIT 1
-    ")
+    ",
+    )
     .bind(run_id)
     .fetch_optional(db_pool)
     .await

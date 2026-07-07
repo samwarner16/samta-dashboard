@@ -7,14 +7,14 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use application::orchestrator::Orchestrator;
 use anyhow::{Context, Result};
+use application::orchestrator::Orchestrator;
+use infra::persistence::EventStore;
 use infra::{migrations::run_migrations, persistence::PostgresEventStore, ws_gateway::WsGateway};
+use tokio::time::sleep;
 use tower_http::cors::CorsLayer;
 use tracing::{info, warn};
-use tokio::time::sleep;
 use uuid::Uuid;
-use infra::persistence::EventStore;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -32,10 +32,7 @@ async fn main() -> Result<()> {
     let event_store_pool = event_store.pool().clone();
 
     let ws_gateway = Arc::new(WsGateway::new(100));
-    let orchestrator = Arc::new(Orchestrator::new(
-        Arc::new(event_store),
-        ws_gateway.clone(),
-    ));
+    let orchestrator = Arc::new(Orchestrator::new(Arc::new(event_store), ws_gateway.clone()));
 
     let app = routes::create_router(orchestrator, ws_gateway, event_store_pool);
     let app = app.layer(CorsLayer::permissive());
@@ -50,7 +47,9 @@ async fn main() -> Result<()> {
         .await
         .with_context(|| format!("failed to bind API listener at {addr}"))?;
     tracing::info!("API listening on {addr}");
-    axum::serve(listener, app).await.context("api serve failed")?;
+    axum::serve(listener, app)
+        .await
+        .context("api serve failed")?;
 
     Ok(())
 }
@@ -78,7 +77,9 @@ async fn connect_with_retry(database_url: &str) -> Result<PostgresEventStore> {
         attempts += 1;
         match PostgresEventStore::connect(database_url).await {
             Ok(store) => {
-                if let Err(err) = wait_for_store_ready(&store, max_schema_attempts, schema_backoff_ms).await {
+                if let Err(err) =
+                    wait_for_store_ready(&store, max_schema_attempts, schema_backoff_ms).await
+                {
                     if attempts >= max_attempts {
                         return Err(err).context("Postgres ready check failed before timeout");
                     }
@@ -93,7 +94,10 @@ async fn connect_with_retry(database_url: &str) -> Result<PostgresEventStore> {
                     sleep(Duration::from_millis(backoff_ms)).await;
                     backoff_ms = std::cmp::min(backoff_ms.saturating_mul(2), 5_000);
                 } else {
-                    info!(attempt = attempts, "Connected to Postgres and validated event schema");
+                    info!(
+                        attempt = attempts,
+                        "Connected to Postgres and validated event schema"
+                    );
                     return Ok(store);
                 }
             }
@@ -116,7 +120,11 @@ async fn connect_with_retry(database_url: &str) -> Result<PostgresEventStore> {
     }
 }
 
-async fn wait_for_store_ready(event_store: &PostgresEventStore, max_attempts: u32, initial_backoff_ms: u64) -> Result<()> {
+async fn wait_for_store_ready(
+    event_store: &PostgresEventStore,
+    max_attempts: u32,
+    initial_backoff_ms: u64,
+) -> Result<()> {
     let mut attempts = 0_u32;
     let mut backoff_ms = initial_backoff_ms;
 

@@ -159,12 +159,13 @@ impl PostgresProjectionStore {
 #[async_trait]
 impl ProjectionStore for PostgresProjectionStore {
     async fn get_run(&self, run_id: Uuid) -> Result<Option<AgentRunProjection>> {
-        let row: Option<(Uuid, Uuid, String, f64, i32, DateTime<Utc>)> =
-            sqlx::query_as("SELECT run_id, workspace_id, status, total_cost, effort_points, updated_at \
-                               FROM agent_runs_projection WHERE run_id = $1")
-                .bind(run_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row: Option<(Uuid, Uuid, String, f64, i32, DateTime<Utc>)> = sqlx::query_as(
+            "SELECT run_id, workspace_id, status, total_cost, effort_points, updated_at \
+                               FROM agent_runs_projection WHERE run_id = $1",
+        )
+        .bind(run_id)
+        .fetch_optional(&self.pool)
+        .await?;
 
         if let Some(row) = row {
             let projection = AgentRunProjection {
@@ -190,12 +191,14 @@ impl ProjectionStore for PostgresProjectionStore {
         .await?;
 
         rows.into_iter()
-            .map(|(item_id, run_id, status, assigned_agent_id)| Ok(WorkItemProjection {
-                item_id,
-                run_id,
-                status,
-                assigned_agent_id,
-            }))
+            .map(|(item_id, run_id, status, assigned_agent_id)| {
+                Ok(WorkItemProjection {
+                    item_id,
+                    run_id,
+                    status,
+                    assigned_agent_id,
+                })
+            })
             .collect()
     }
 
