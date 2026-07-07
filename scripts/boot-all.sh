@@ -14,9 +14,11 @@ BOOT_USE_SERVICE_WRAPPERS="${BOOT_USE_SERVICE_WRAPPERS:-0}"
 BOOT_WAIT_SECONDS="${BOOT_WAIT_SECONDS:-180}"
 BOOT_DB_WAIT_SECONDS="${BOOT_DB_WAIT_SECONDS:-60}"
 BOOT_DOCKER_WAIT_SECONDS="${BOOT_DOCKER_WAIT_SECONDS:-45}"
+BOOT_AUTO_START_DOCKER="${BOOT_AUTO_START_DOCKER:-1}"
 BOOT_SERVICE_MODE="${BOOT_SERVICE_MODE:-launchd}"
 BOOT_API_SERVICE_PID="${ROOT_DIR}/.dashboard-api-service.pid"
 BOOT_WORKER_SERVICE_PID="${ROOT_DIR}/.dashboard-worker-service.pid"
+DOCKER_START_TRIGGERED=0
 
 info() {
   printf '\033[1;34m[boot]\033[0m %s\n' "$1"
@@ -51,13 +53,20 @@ is_process_running() {
 
 ensure_docker_available() {
   local timeout_seconds="$1"
+  local start_time="$SECONDS"
   local deadline=$((SECONDS + timeout_seconds))
 
   while ! docker info >/dev/null 2>&1; do
-    local elapsed=$((SECONDS - (deadline - timeout_seconds)))
+    local elapsed=$((SECONDS - start_time))
     if [ "$SECONDS" -ge "$deadline" ]; then
       warn "Docker daemon is not reachable after ${timeout_seconds}s. Start Docker Desktop and retry."
       return 1
+    fi
+
+    if [ "${BOOT_AUTO_START_DOCKER}" != "0" ] && [ "${DOCKER_START_TRIGGERED}" -eq 0 ] && [ "$(uname -s)" = "Darwin" ]; then
+      warn "Attempting to launch Docker Desktop automatically (set BOOT_AUTO_START_DOCKER=0 to disable)."
+      open -a Docker >/dev/null 2>&1 || true
+      DOCKER_START_TRIGGERED=1
     fi
 
     warn "Waiting for Docker daemon (${elapsed}/${timeout_seconds}s)."

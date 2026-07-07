@@ -46,6 +46,7 @@ Optional boot overrides:
 - `DASHBOARD_PORT` (default `4173`)
 - `DASHBOARD_API_BASE` (default `http://127.0.0.1:8080`)
 - `BOOT_DOCKER_WAIT_SECONDS` (default `45`, wait time for Docker daemon readiness before aborting boot)
+- `BOOT_AUTO_START_DOCKER` (`1` default; attempts to open Docker Desktop automatically on macOS when daemon is unavailable, `0` to disable)
 - `DASHBOARD_OPEN=1` (auto-open browser)
 - `BOOT_USE_SERVICE_WRAPPERS=1` and `BOOT_SERVICE_MODE=direct|launchd|systemd`
 - `WORKER_EFFORT_PER_ITEM` / `WORKER_COST_PER_ITEM` (default item cost simulation)
