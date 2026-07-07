@@ -44,6 +44,7 @@ validate_json() {
   local label="$2"
 
   if ! jq -e . >/dev/null 2>&1 <<<"${payload}"; then
+    log "Invalid JSON for ${label}: ${payload}"
     fail "${label} was not valid JSON"
   fi
 }
@@ -96,7 +97,7 @@ until curl -sf "${API_URL}/health" >/dev/null 2>&1; do
 done
 
 log "Creating workspace"
-workspace_payload="$(ok_or_fail post_json POST /api/workspaces '{\"name\":\"smoke-workspace\"}')"
+workspace_payload="$(ok_or_fail post_json POST /api/workspaces "$(jq -n --arg name smoke-workspace '{"name": $name}' )")"
 validate_json "${workspace_payload}" "workspace response"
 workspace_id="$(echo "${workspace_payload}" | tr -d '\"\r\n')"
 if [ -z "${workspace_id}" ]; then
@@ -105,11 +106,12 @@ fi
 log "Workspace: ${workspace_id}"
 
 log "Creating run"
-run_payload="$(ok_or_fail post_json POST /api/runs \
-  "{ \"workspace_id\": \"${workspace_id}\", \
-     \"objective\": \"smoke-test objective\", \
-     \"target_item_count\": ${SMOKE_TARGET_ITEMS}, \
-     \"agent_count\": ${SMOKE_AGENT_COUNT} }")"
+run_payload="$(ok_or_fail post_json POST /api/runs "$(jq -n \
+  --arg ws_id "${workspace_id}" \
+  --arg obj "smoke-test objective" \
+  --argjson target_items "${SMOKE_TARGET_ITEMS}" \
+  --argjson agent_count "${SMOKE_AGENT_COUNT}" \
+  '{ workspace_id: $ws_id, objective: $obj, target_item_count: $target_items, agent_count: $agent_count }')")"
 validate_json "${run_payload}" "run create response"
 run_id="$(echo "${run_payload}" | tr -d '\"\r\n')"
 if [ -z "${run_id}" ]; then
