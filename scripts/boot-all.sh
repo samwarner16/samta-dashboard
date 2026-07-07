@@ -13,6 +13,7 @@ BOOT_CLEAN_SLATE="${BOOT_CLEAN_SLATE:-1}"
 BOOT_USE_SERVICE_WRAPPERS="${BOOT_USE_SERVICE_WRAPPERS:-0}"
 BOOT_WAIT_SECONDS="${BOOT_WAIT_SECONDS:-180}"
 BOOT_DB_WAIT_SECONDS="${BOOT_DB_WAIT_SECONDS:-60}"
+BOOT_DOCKER_WAIT_SECONDS="${BOOT_DOCKER_WAIT_SECONDS:-45}"
 BOOT_SERVICE_MODE="${BOOT_SERVICE_MODE:-launchd}"
 BOOT_API_SERVICE_PID="${ROOT_DIR}/.dashboard-api-service.pid"
 BOOT_WORKER_SERVICE_PID="${ROOT_DIR}/.dashboard-worker-service.pid"
@@ -49,10 +50,19 @@ is_process_running() {
 }
 
 ensure_docker_available() {
-  if ! docker info >/dev/null 2>&1; then
-    warn "Docker daemon is not reachable. Start Docker Desktop and retry."
-    return 1
-  fi
+  local timeout_seconds="$1"
+  local deadline=$((SECONDS + timeout_seconds))
+
+  while ! docker info >/dev/null 2>&1; do
+    local elapsed=$((SECONDS - (deadline - timeout_seconds)))
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      warn "Docker daemon is not reachable after ${timeout_seconds}s. Start Docker Desktop and retry."
+      return 1
+    fi
+
+    warn "Waiting for Docker daemon (${elapsed}/${timeout_seconds}s)."
+    sleep 1
+  done
 }
 
 kill_pid_file() {
@@ -172,7 +182,7 @@ cleanup_processes() {
 }
 
 start_services() {
-  ensure_docker_available
+  ensure_docker_available "${BOOT_DOCKER_WAIT_SECONDS}"
   if [ "${BOOT_CLEAN_SLATE}" = "1" ]; then
     warn "BOOT_CLEAN_SLATE enabled: tearing down existing containers/volumes for a fresh DB state."
     docker compose down -v --remove-orphans
