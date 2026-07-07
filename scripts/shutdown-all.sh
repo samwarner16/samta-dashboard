@@ -71,10 +71,14 @@ if [ "${BOOT_USE_SERVICE_WRAPPERS}" = "1" ]; then
   "${ROOT_DIR}/scripts/local-services.sh" stop >/dev/null 2>&1 || true
 fi
 
-if command -v docker-compose >/dev/null 2>&1; then
-  docker compose down
+if command -v docker >/dev/null 2>&1; then
+  if docker info >/dev/null 2>&1; then
+    docker compose down || true
+  else
+    log "Docker daemon is not running. Skipping docker compose teardown."
+  fi
 else
-  docker compose down
+  log "docker command not found. Skipping docker compose teardown."
 fi
 
 if command -v pkill >/dev/null 2>&1; then
