@@ -38,11 +38,10 @@ async fn main() -> Result<()> {
 
     // The harness (executor) is chosen here. Supported modes (via HARNESS_CONTROLLER env):
     // - simulated (default)
-    // - api_endpoint  (HARNESS_API_ENDPOINT=... )  → harness controlled by external API
+    // - openrouter (OPENROUTER_API_KEY + HARNESS_OPENROUTER_MODEL) → cloud LLM via OpenRouter (recommended for harness LLM API testing)
     // - local_llm / gpu (HARNESS_LLM_BASE_URL=..., HARNESS_LLM_MODEL=...) → LLM on local GPU card(s)
     //
-    // This allows the exact same worker binary to run either as an API-driven client
-    // or as the brain for a full local LLM (Qwen etc.) spun up on high-VRAM graphics hardware.
+    // This allows the exact same worker binary to run with a cloud brain (OpenRouter) or local GPU LLM.
     let executor: Box<dyn AgentExecutor> = application::harness::create_executor_from_env(worker_agent_id);
 
     info!(

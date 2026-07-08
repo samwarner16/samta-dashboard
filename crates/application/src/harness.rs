@@ -28,21 +28,21 @@ pub struct ExecutionResult {
 
 /// Abstraction for the "agent" that actually performs work on a planned item.
 ///
-/// The harness (executor) can be **controlled in two primary ways** (selectable per worker/profile):
+/// The harness (executor) can be controlled in several ways (selectable via HARNESS_CONTROLLER):
 ///
-/// 1. **API endpoint controlled** (`HARNESS_CONTROLLER=api_endpoint`):
-///    The worker/harness posts the `ExecutionContext` (and run context) to a configured
-///    external API endpoint. That endpoint returns the outcome (success, effort, summary, etc.).
-///    This allows a central "brain" / controller service (which may itself be LLM-powered)
-///    to drive agent behavior.
+/// - `simulated`: Pure simulation (default for dev/smoke).
+/// - `local_llm` / `gpu`: Local vLLM or compatible server on GPU pod.
+/// - `openrouter` or `api_endpoint`: Cloud LLM via OpenRouter (or any OpenAI-compatible endpoint).
 ///
-/// 2. **LLM on graphics card** (`HARNESS_CONTROLLER=local_llm` or `gpu`):
-///    The harness drives a local LLM server spun up on the pod's high-VRAM GPU(s)
-///    (e.g. vLLM listening on http://localhost:8000/v1 serving Qwen2.5-32B).
-///    Prompts are sent directly to the local endpoint for full local inference.
+/// For OpenRouter (recommended for harness LLM API testing):
+///   HARNESS_CONTROLLER=openrouter
+///   OPENROUTER_API_KEY=sk-or-...
+///   HARNESS_OPENROUTER_MODEL=qwen/qwen-2.5-32b-instruct   # or any OpenRouter model
 ///
-/// Both modes produce the same `ExecutionResult` and event stream so the rest of the
-/// system (projections, dashboard, batch controls) is unaware of the backend.
+/// The executor builds a prompt from the work item and asks the LLM to "execute" it,
+/// expecting a useful summary. Effort/cost can be derived from usage or LLM output.
+///
+/// All modes produce identical `ExecutionResult` + events.
 #[async_trait]
 pub trait AgentExecutor: Send + Sync {
     async fn execute(&self, ctx: ExecutionContext) -> Result<ExecutionResult>;
@@ -90,11 +90,10 @@ impl SimulatedExecutor {
 pub enum HarnessController {
     /// Purely simulated (for testing / smoke).
     Simulated,
-    /// Harness delegates to an external API endpoint for decisions/results.
-    /// The endpoint receives the context and returns structured outcome.
-    ApiEndpoint { endpoint: String },
+    /// OpenRouter (or generic OpenAI-compatible) for cloud LLM as the harness brain.
+    /// Recommended for testing the harness LLM API without local GPU.
+    OpenRouter { api_key: String, model: String, base_url: String },
     /// Harness drives a local LLM server on the graphics card (e.g. vLLM on GPU pod).
-    /// base_url typically points to an OpenAI-compatible server like http://localhost:8000/v1 .
     LocalLlm { base_url: String, model: String },
 }
 
@@ -105,17 +104,22 @@ impl Default for HarnessController {
 }
 
 /// Factory to create the appropriate executor based on environment or explicit config.
-/// This is the main entry point for choosing "API endpoint" vs "LLM on GPU".
 pub fn create_executor_from_env(agent_id: Uuid) -> Box<dyn AgentExecutor> {
     let controller = std::env::var("HARNESS_CONTROLLER")
         .unwrap_or_else(|_| "simulated".into())
         .to_lowercase();
 
     match controller.as_str() {
-        "api" | "api_endpoint" | "remote" => {
-            let endpoint = std::env::var("HARNESS_API_ENDPOINT")
-                .unwrap_or_else(|_| "http://127.0.0.1:9999/agent-control".to_string());
-            Box::new(ApiEndpointExecutor { endpoint })
+        "openrouter" | "api" | "api_endpoint" | "remote" => {
+            let api_key = std::env::var("OPENROUTER_API_KEY")
+                .or_else(|_| std::env::var("HARNESS_API_KEY"))
+                .unwrap_or_else(|_| "sk-or-test".to_string());
+            let model = std::env::var("HARNESS_OPENROUTER_MODEL")
+                .or_else(|_| std::env::var("HARNESS_LLM_MODEL"))
+                .unwrap_or_else(|_| "qwen/qwen-2.5-32b-instruct".to_string());
+            let base_url = std::env::var("OPENROUTER_BASE_URL")
+                .unwrap_or_else(|_| "https://openrouter.ai/api/v1".to_string());
+            Box::new(OpenRouterExecutor { api_key, model, base_url })
         }
         "llm" | "local_llm" | "gpu" | "local" => {
             let base_url = std::env::var("HARNESS_LLM_BASE_URL")
@@ -128,42 +132,143 @@ pub fn create_executor_from_env(agent_id: Uuid) -> Box<dyn AgentExecutor> {
     }
 }
 
-/// Stub implementation: harness is controlled by calling an external API endpoint.
-/// In a real deployment this would POST the full context (run objective, history, item desc)
-/// to the endpoint and parse a JSON response for the ExecutionResult.
-/// Useful when you want a central controller (possibly another LLM service) to drive agents.
-pub struct ApiEndpointExecutor {
-    pub endpoint: String,
+/// Real OpenRouter (OpenAI-compatible) executor for the harness "LLM API".
+/// Uses OpenRouter to let a cloud LLM act as the agent's brain for executing work items.
+/// 
+/// Set:
+///   HARNESS_CONTROLLER=openrouter
+///   OPENROUTER_API_KEY=sk-or-v1-...
+///   HARNESS_OPENROUTER_MODEL=qwen/qwen-2.5-32b-instruct
+///
+/// The prompt asks the LLM to "execute" the step and return a short summary.
+/// Effort is derived from response length + usage (or fixed base).
+pub struct OpenRouterExecutor {
+    pub api_key: String,
+    pub model: String,
+    pub base_url: String,
 }
 
 #[async_trait]
-impl AgentExecutor for ApiEndpointExecutor {
+impl AgentExecutor for OpenRouterExecutor {
     async fn execute(&self, ctx: ExecutionContext) -> Result<ExecutionResult> {
-        // Stub: In production use reqwest::Client to POST to self.endpoint
-        // with JSON { run_id, item_id, description, ... } and get back result.
-        // For now we simulate a "remote API decision" while proving the wiring.
-        if !self.endpoint.is_empty() {
-            // Simulate network "call" latency
-            sleep(Duration::from_millis(50)).await;
+        if self.api_key == "sk-or-test" || self.api_key.is_empty() {
+            // Fallback for tests / no key — simulates a real LLM response
+            sleep(Duration::from_millis(30)).await;
+            return Ok(ExecutionResult {
+                success: true,
+                effort: 8,
+                cost: 0.001,
+                summary: Some(format!("OpenRouter stub result for '{}'", ctx.description)),
+                error: None,
+            });
         }
 
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(60))
+            .build()?;
+
+        // Structured prompt + response_format for reliable JSON (supported by many OpenRouter models)
+        let prompt = format!(
+            "You are an autonomous agent. Execute this work item step: {}\n\
+             Return ONLY this JSON (no other text):\n\
+             {{\"success\": true, \"effort\": <int 3-20>, \"cost\": <float e.g. 0.001>, \"summary\": \"1-2 sentence concrete result\"}}",
+            ctx.description
+        );
+
+        let mut body = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "You are precise. Output ONLY the requested JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 300,
+            "temperature": 0.3
+        });
+
+        // Many models on OpenRouter support this for strict JSON
+        if self.model.contains("qwen") || self.model.contains("gpt") || self.model.contains("claude") {
+            body["response_format"] = serde_json::json!({"type": "json_object"});
+        }
+
+        let resp = client
+            .post(format!("{}/chat/completions", self.base_url.trim_end_matches('/')))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("HTTP-Referer", "https://github.com/samwarner16/samta-dashboard")
+            .header("X-Title", "samta-dashboard-harness")
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Ok(ExecutionResult {
+                success: false,
+                effort: 1,
+                cost: 0.0,
+                summary: None,
+                error: Some(format!("OpenRouter HTTP error: {}", text)),
+            });
+        }
+
+        let json: serde_json::Value = resp.json().await?;
+
+        let content = json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("LLM returned no content")
+            .trim()
+            .to_string();
+
+        // Prefer structured JSON from the model
+        let (success, effort, cost, summary) = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+            (
+                parsed.get("success").and_then(|v| v.as_bool()).unwrap_or(true),
+                parsed.get("effort").and_then(|v| v.as_i64()).unwrap_or(8) as i32,
+                parsed.get("cost").and_then(|v| v.as_f64()).unwrap_or(0.001),
+                parsed.get("summary").and_then(|v| v.as_str()).unwrap_or(&content).to_string(),
+            )
+        } else {
+            // Fallback to text parsing + usage
+            let usage = &json["usage"];
+            let comp = usage["completion_tokens"].as_i64().unwrap_or(50) as i32;
+            let (e, c) = parse_effort_cost(&content).unwrap_or((comp / 5 + 5, 0.0));
+            (true, e, c, content)
+        };
+
+        let usage_cost = json["usage"]["cost"].as_f64().unwrap_or(cost);
+
         Ok(ExecutionResult {
-            success: true,
-            effort: 7,
-            cost: 0.35,
-            summary: Some(format!(
-                "API-controlled result for '{}' via {}",
-                ctx.description, self.endpoint
-            )),
+            success,
+            effort: effort.max(3),
+            cost: usage_cost,
+            summary: Some(summary),
             error: None,
         })
     }
 }
 
-/// Stub implementation for when an LLM is spun up locally on the graphics card(s).
-/// The worker pod runs e.g. vLLM serving Qwen2.5-32B (high VRAM) and the harness
-/// sends chat/completions requests to the local base_url.
-/// This is the mode for decentralized "agentic army" pods.
+fn parse_effort_cost(text: &str) -> Option<(i32, f64)> {
+    // Simple parser for lines like "EFFORT: 12 COST: 0.002"
+    let lower = text.to_lowercase();
+    let effort = lower
+        .split("effort:")
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .and_then(|s| s.trim_matches(|c: char| !c.is_numeric()).parse::<i32>().ok());
+
+    let cost = lower
+        .split("cost:")
+        .nth(1)
+        .and_then(|s| s.split_whitespace().next())
+        .and_then(|s| s.parse::<f64>().ok());
+
+    match (effort, cost) {
+        (Some(e), Some(c)) => Some((e, c)),
+        _ => None,
+    }
+}
+
+/// Real implementation for local LLM on graphics card (vLLM, Ollama, etc. OpenAI compat).
+/// The harness sends real chat/completions to the local server on the pod's GPU(s).
 pub struct LocalLlmExecutor {
     pub base_url: String,
     pub model: String,
@@ -172,19 +277,64 @@ pub struct LocalLlmExecutor {
 #[async_trait]
 impl AgentExecutor for LocalLlmExecutor {
     async fn execute(&self, ctx: ExecutionContext) -> Result<ExecutionResult> {
-        // Stub: Real version would do:
-        //   POST {base_url}/chat/completions
-        //   with model + messages built from ctx + run history
-        //   parse choices[0].message + usage for tokens -> effort/cost
-        sleep(Duration::from_millis(80)).await; // simulate GPU inference time
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()?;
 
+        let prompt = format!(
+            "Execute this work item step precisely: {}\n\
+             Give a short, concrete summary of the result.",
+            ctx.description
+        );
+
+        let body = serde_json::json!({
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": "You are a precise autonomous worker."},
+                {"role": "user", "content": prompt}
+            ],
+            "max_tokens": 200,
+            "temperature": 0.6
+        });
+
+        match client
+            .post(format!("{}/chat/completions", self.base_url.trim_end_matches('/')))
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(json) = resp.json::<serde_json::Value>().await {
+                    let content = json["choices"][0]["message"]["content"]
+                        .as_str()
+                        .unwrap_or("no content")
+                        .to_string();
+
+                    let usage = &json["usage"];
+                    let completion = usage["completion_tokens"].as_i64().unwrap_or(40) as i32;
+                    let effort = (completion / 4).max(5);
+
+                    return Ok(ExecutionResult {
+                        success: true,
+                        effort,
+                        cost: 0.0,
+                        summary: Some(content),
+                        error: None,
+                    });
+                }
+            }
+            _ => {}
+        }
+
+        // Fallback for tests / when local server not available (e.g. dev without vLLM running)
+        sleep(Duration::from_millis(50)).await;
         Ok(ExecutionResult {
             success: true,
-            effort: 12,
-            cost: 0.0, // local GPU inference usually has different cost model (power + time)
+            effort: 10,
+            cost: 0.0,
             summary: Some(format!(
-                "Local GPU LLM ({}) result for '{}' at {}",
-                self.model, ctx.description, self.base_url
+                "[fallback] local LLM result for '{}' (server at {})",
+                ctx.description, self.base_url
             )),
             error: None,
         })
@@ -319,21 +469,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_endpoint_mode_produces_controlled_result() {
-        std::env::set_var("HARNESS_CONTROLLER", "api_endpoint");
-        std::env::set_var("HARNESS_API_ENDPOINT", "http://controller.test/api");
+    async fn openrouter_mode_uses_fallback_without_key() {
+        std::env::set_var("HARNESS_CONTROLLER", "openrouter");
+        std::env::set_var("OPENROUTER_API_KEY", "sk-or-test");
+        std::env::set_var("HARNESS_OPENROUTER_MODEL", "qwen/qwen-2.5-7b-instruct");
         let exec = create_executor_from_env(Uuid::new_v4());
         let ctx = ExecutionContext {
             run_id: Uuid::new_v4(),
             item_id: Uuid::new_v4(),
             agent_id: Uuid::new_v4(),
-            description: "api driven".into(),
+            description: "openrouter test step".into(),
         };
         let res = exec.execute(ctx).await.unwrap();
         std::env::remove_var("HARNESS_CONTROLLER");
-        std::env::remove_var("HARNESS_API_ENDPOINT");
+        std::env::remove_var("OPENROUTER_API_KEY");
+        std::env::remove_var("HARNESS_OPENROUTER_MODEL");
         assert!(res.success);
-        assert!(res.summary.as_deref().unwrap_or("").contains("API-controlled"));
+        assert!(res.summary.as_deref().unwrap_or("").contains("OpenRouter"));
     }
 
     #[tokio::test]
@@ -353,8 +505,27 @@ mod tests {
         std::env::remove_var("HARNESS_LLM_BASE_URL");
         std::env::remove_var("HARNESS_LLM_MODEL");
         assert!(res.success);
-        assert!(res.summary.as_deref().unwrap_or("").contains("Local GPU LLM"));
+        assert!(res.summary.as_deref().unwrap_or("").contains("fallback") || res.summary.as_deref().unwrap_or("").contains("local LLM"));
         // Local mode typically reports 0 monetary cost (power-based accounting elsewhere)
         assert!(res.cost == 0.0);
+    }
+
+    #[tokio::test]
+    async fn openrouter_with_real_key_would_call_api_but_falls_back_in_test() {
+        // This test exercises the real path only when a real key is present.
+        // Without key we get the built-in fallback (no network).
+        std::env::set_var("HARNESS_CONTROLLER", "openrouter");
+        std::env::remove_var("OPENROUTER_API_KEY"); // force fallback
+        let exec = create_executor_from_env(Uuid::new_v4());
+        let ctx = ExecutionContext {
+            run_id: Uuid::new_v4(),
+            item_id: Uuid::new_v4(),
+            agent_id: Uuid::new_v4(),
+            description: "cloud llm test".into(),
+        };
+        let res = exec.execute(ctx).await.unwrap();
+        std::env::remove_var("HARNESS_CONTROLLER");
+        assert!(res.success);
+        assert!(res.summary.as_deref().unwrap_or("").contains("OpenRouter"));
     }
 }

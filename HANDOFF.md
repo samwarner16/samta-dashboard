@@ -8,7 +8,7 @@
 ## Key Recent Changes
 - **Dual-mode Agent Harness** (core for pod testing):
   - `HARNESS_CONTROLLER=simulated` (default, for local dev/smoke)
-  - `HARNESS_CONTROLLER=api_endpoint` + `HARNESS_API_ENDPOINT=...` — harness controlled by external API endpoint.
+  - `HARNESS_CONTROLLER=openrouter` (or api_endpoint) + OPENROUTER_API_KEY + HARNESS_OPENROUTER_MODEL — cloud LLM via OpenRouter (great for harness LLM API testing without local model pain)
   - `HARNESS_CONTROLLER=local_llm` (or `gpu`) + `HARNESS_LLM_BASE_URL=http://localhost:8000/v1` + `HARNESS_LLM_MODEL=...` — harness drives local LLM server (vLLM etc.) spun up on the pod's GPU.
   - Both modes produce identical `WorkItemStarted/Completed/Progress` events. Worker binary auto-selects via `create_executor_from_env()`.
   - Verified with unit tests (no models executed locally — this machine is weak).
